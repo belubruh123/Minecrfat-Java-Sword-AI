@@ -19,21 +19,23 @@ curriculum:
 
 curriculum_manager:      # anti-forgetting eval guard
   eval_every: 50_000
-  eval_episodes: 48
+  eval_episodes: 64
   eval_seed: 777
   h_prob_floor: 0.25
   h_prob_cap: 0.6
   guard_drop: 0.10
 
+# Fine-tuning rates: resuming a near-converged aim net; full stage-1 lr
+# (2.5e-4) made the deterministic mean drift while stochastic success held.
 ppo:
-  lr: 2.5e-4
+  lr: 1.0e-4
   gamma: 0.99
   gae_lambda: 0.95
   rollout_len: 128
   num_minibatches: 2
   update_epochs: 2
   clip_coef: 0.2
-  ent_coef: 0.005
+  ent_coef: 0.002
   vf_coef: 0.5
   max_grad_norm: 0.5
   reward_scale: 1.0

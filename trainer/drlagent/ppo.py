@@ -43,6 +43,7 @@ class PPOTrainer:
 
         self.global_step = 0
         self.update_idx = 0
+        self.best_eval = float("-inf")
         self.ep_stats: list[dict] = []
 
     # -- data collection ------------------------------------------------------
@@ -209,6 +210,11 @@ class PPOTrainer:
                 if ev is not None:
                     losses.update({k: v for k, v in ev.items()
                                    if isinstance(v, (int, float))})
+                    combined = float(np.nanmean([ev["eval_success_h"],
+                                                 ev["eval_success_v"]]))
+                    if combined >= self.best_eval:
+                        self.best_eval = combined
+                        self.save("best")
                     print(f"[{self.global_step:>9}] EVAL "
                           f"h={ev['eval_success_h']:.0%} v={ev['eval_success_v']:.0%} "
                           f"h_prob={ev['h_prob']:.2f} adapted={ev['adapted']}",
