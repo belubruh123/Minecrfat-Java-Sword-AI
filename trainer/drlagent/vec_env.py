@@ -16,6 +16,7 @@ MAX_TURN_DEG = 15.0
 INFO_ON_TARGET = 1
 INFO_HIT_LANDED = 2
 INFO_HIT_TAKEN = 4
+INFO_ELEVATED = 8
 
 SCALAR_SCALE = np.array([1 / 0.3, 1, 1, 1, 1 / 3.0, 1, 1, 1, 1 / 3.5],
                         dtype=np.float32)
@@ -106,6 +107,7 @@ class MinecraftVecEnv:
                 "return": float(self.episode_return[i]),
                 "length": int(self.episode_len[i]),
                 "success": bool(obs.rewards[i] > 1.0),  # lock bonus present
+                "elevated": bool(obs.infos[i] & INFO_ELEVATED),
             })
             self.episode_return[i] = 0.0
             self.episode_len[i] = 0

@@ -198,12 +198,21 @@ class PPOTrainer:
 
     # -- main loop ------------------------------------------------------------
 
-    def train(self, total_steps: int) -> None:
+    def train(self, total_steps: int, curriculum=None) -> None:
         while self.global_step < total_steps:
             t0 = time.time()
             self.collect_rollout()
             losses = self.update()
             sps = self.rollout_len * self.env.n / (time.time() - t0)
+            if curriculum is not None:
+                ev = curriculum.maybe_eval(self.global_step, self.policy)
+                if ev is not None:
+                    losses.update({k: v for k, v in ev.items()
+                                   if isinstance(v, (int, float))})
+                    print(f"[{self.global_step:>9}] EVAL "
+                          f"h={ev['eval_success_h']:.0%} v={ev['eval_success_v']:.0%} "
+                          f"h_prob={ev['h_prob']:.2f} adapted={ev['adapted']}",
+                          flush=True)
             summary = self.log(losses, sps)
             if self.update_idx % 10 == 0:
                 print(f"[{self.global_step:>9}] " + " ".join(

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from drlagent.curriculum import RehearsalCurriculum
 from drlagent.ppo import PPOTrainer
 from drlagent.vec_env import MinecraftVecEnv
 
@@ -39,11 +40,16 @@ def main() -> None:
         trainer.load(args.resume)
         print(f"resumed from {args.resume} at step {trainer.global_step}")
 
+    curriculum = None
+    if "curriculum_manager" in cfg:
+        curriculum = RehearsalCurriculum(env, cfg["curriculum"], cfg["stage"],
+                                         **cfg["curriculum_manager"])
+
     total = args.steps or cfg["total_steps"]
     print(f"run={run_name} arenas={env.n} obs={env.stack}x{env.h}x{env.w} "
-          f"target={total} steps")
+          f"target={total} steps curriculum={'adaptive' if curriculum else 'fixed'}")
     try:
-        trainer.train(total)
+        trainer.train(total, curriculum=curriculum)
     finally:
         trainer.save("latest")
         env.close()

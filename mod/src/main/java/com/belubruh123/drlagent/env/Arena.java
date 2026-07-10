@@ -44,6 +44,7 @@ public final class Arena {
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
 	public static final int INFO_HIT_TAKEN = 4;
+	public static final int INFO_ELEVATED = 8;
 
 	private final int index;
 	private final ServerLevel level;
@@ -64,6 +65,7 @@ public final class Arena {
 	private boolean attackPressed;
 	private boolean hitLanded;
 	private boolean forceReset;
+	private boolean elevatedEpisode;
 	private float opponentHealthBefore;
 
 	public Arena(int index, ServerLevel level, Random rng) {
@@ -132,6 +134,7 @@ public final class Arena {
 		agent.setNoGravity(false);
 
 		boolean horizontal = rng.nextDouble() < cfg.horizontalProb || cfg.maxElev <= 0;
+		elevatedEpisode = !horizontal;
 		double dist = cfg.distMin + rng.nextDouble() * (cfg.distMax - cfg.distMin);
 		double angle = Math.toRadians(agentYaw + (rng.nextDouble() * 2 - 1) * cfg.yawRange);
 		// Direction the agent looks at yaw a: (-sin a, 0, cos a)
@@ -225,6 +228,7 @@ public final class Arena {
 		int info = 0;
 		if (onTarget) info |= INFO_ON_TARGET;
 		if (hitLanded) info |= INFO_HIT_LANDED;
+		if (elevatedEpisode) info |= INFO_ELEVATED;
 		if (opponent.getHealth() < opponentHealthBefore - 1e-4) {
 			// reserved for later stages (opponent fights back)
 		}

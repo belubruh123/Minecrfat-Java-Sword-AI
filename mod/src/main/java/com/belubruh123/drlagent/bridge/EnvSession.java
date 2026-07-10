@@ -118,8 +118,14 @@ public final class EnvSession {
 		JsonObject latest = bridge.getLatestConfig();
 		if (latest != appliedConfig) {
 			appliedConfig = latest;
-			arenas.applyConfig(EnvConfig.from(latest));
-			DrlAgentMod.LOGGER.info("Applied new curriculum config");
+			if (latest.has("reseed") && latest.get("reseed").getAsBoolean()) {
+				// reproducible eval: re-seed the rng and restart every episode
+				arenas.resetAll(EnvConfig.from(latest));
+				DrlAgentMod.LOGGER.info("Applied new curriculum config with reseed");
+			} else {
+				arenas.applyConfig(EnvConfig.from(latest));
+				DrlAgentMod.LOGGER.info("Applied new curriculum config");
+			}
 		}
 	}
 

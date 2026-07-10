@@ -100,6 +100,10 @@ const CHARTS = [
   {key: "success",   title: "Lock success rate", fmt: v => (100 * v).toFixed(0) + "%"},
   {key: "ep_len",    title: "Ticks to lock (episode length)", fmt: v => v.toFixed(0)},
   {key: "sps",       title: "Training steps / s", fmt: v => v.toFixed(0)},
+  {key: "eval_success_h", title: "Eval: horizontal aim (guarded skill)",
+   fmt: v => (100 * v).toFixed(0) + "%", optional: true},
+  {key: "eval_success_v", title: "Eval: vertical aim",
+   fmt: v => (100 * v).toFixed(0) + "%", optional: true},
 ];
 
 function drawChart(host, pts, spec) {
@@ -161,14 +165,16 @@ function drawChart(host, pts, spec) {
 
 function renderCharts(metrics) {
   const hostRoot = $("charts");
-  if (!hostRoot.childElementCount) {
-    for (const _ of CHARTS) {
+  const specs = CHARTS.filter(s => !s.optional || metrics.some(m => s.key in m));
+  if (hostRoot.childElementCount !== specs.length) {
+    hostRoot.innerHTML = "";
+    for (const _ of specs) {
       const d = document.createElement("div");
       d.className = "panel chart";
       hostRoot.appendChild(d);
     }
   }
-  CHARTS.forEach((spec, i) => {
+  specs.forEach((spec, i) => {
     const pts = metrics.filter(m => spec.key in m).map(m => [m.step, m[spec.key]]);
     const thin = pts.length > 240 ? pts.filter((_, j) => j % Math.ceil(pts.length / 240) === 0) : pts;
     drawChart(hostRoot.children[i], thin, spec);

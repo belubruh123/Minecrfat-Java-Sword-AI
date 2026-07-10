@@ -39,7 +39,9 @@ All binary numbers are **big-endian**; floats are IEEE-754 f32 (matches Java
    trainer sends type 1, mod replies type 2.
 
 `config` may be re-sent at any point between steps (curriculum changes apply
-at the next episode reset of each arena).
+at the next episode reset of each arena). If a re-sent `config` carries
+`"reseed": true`, the mod re-seeds its rng from `seed` and force-resets every
+arena immediately — used for reproducible evaluation suites.
 
 ## Action batch (type 1)
 
@@ -63,7 +65,7 @@ Header: `u32 tick_counter`, then repeated `arenas` times:
 | scalars | f32 × 9 | order as in `hello.scalars` |
 | reward | f32 | reward earned by the tick just simulated |
 | done  | u8  | 1 = episode ended this tick (obs is the first of the new episode) |
-| info  | u8  | bit 0: crosshair on target; bit 1: hit landed; bit 2: hit taken |
+| info  | u8  | bit 0: crosshair on target; bit 1: hit landed; bit 2: hit taken; bit 3: episode has an elevated (non-horizontal) spawn |
 
 Mask size for 426×240 = 12780 bytes.
 

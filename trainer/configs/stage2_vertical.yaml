@@ -1,0 +1,40 @@
+# Stage 2: vertical aim with rehearsal anti-forgetting.
+# Resume from the stage-1 checkpoint:
+#   python train.py configs/stage2_vertical.yaml --resume ../runs/stage1_aim/final.pt
+stage: aim
+seed: 2
+total_steps: 4_000_000
+downsample: 3
+frame_stack: 4
+
+curriculum:
+  horizontal_prob: 0.3   # rehearsal share of stage-1 (eye-level) episodes
+  max_elev: 6.0          # opponent hovers up to +-6 blocks
+  dist_min: 3.0
+  dist_max: 8.0
+  yaw_range: 90.0
+  episode_ticks: 200
+  lock_ticks: 3
+  opponent: static
+
+curriculum_manager:      # anti-forgetting eval guard
+  eval_every: 50_000
+  eval_episodes: 48
+  eval_seed: 777
+  h_prob_floor: 0.25
+  h_prob_cap: 0.6
+  guard_drop: 0.10
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.005
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3
