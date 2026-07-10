@@ -1,6 +1,7 @@
 """Evaluate a checkpoint with a deterministic policy.
 
 Usage: python eval.py runs/stage1_aim/latest.pt --episodes 100 [--curriculum configs/stage1_aim.yaml]
+Swing checkpoints need the frozen aim net: --aim runs/stage2_vertical_v2/best.pt
 Stop the trainer first — the bridge holds one session at a time.
 """
 
@@ -11,7 +12,7 @@ import numpy as np
 import torch
 import yaml
 
-from drlagent.models import AimPolicy
+from drlagent.models import AimPolicy, SwingPolicy
 from drlagent.vec_env import MinecraftVecEnv
 
 
@@ -21,14 +22,17 @@ def main() -> None:
     ap.add_argument("--episodes", type=int, default=100)
     ap.add_argument("--curriculum", default=None,
                     help="yaml config supplying the eval curriculum")
+    ap.add_argument("--aim", default=None,
+                    help="aim checkpoint that steers during a swing eval")
     ap.add_argument("--seed", type=int, default=12345)
     args = ap.parse_args()
 
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     stack, h, w, n_scalars = ckpt["obs_shape"]
+    ckpt_stage = ckpt.get("stage", "aim")
 
     curriculum = {"horizontal_prob": 1.0, "yaw_range": 90.0}
-    stage = "aim"
+    stage = ckpt_stage
     if args.curriculum:
         cfg = yaml.safe_load(Path(args.curriculum).read_text())
         curriculum = cfg["curriculum"]
@@ -40,7 +44,17 @@ def main() -> None:
     assert (env.h, env.w, env.n_scalars) == (h, w, n_scalars), \
         f"env obs {(env.h, env.w, env.n_scalars)} != checkpoint {(h, w, n_scalars)}"
 
-    policy = AimPolicy(stack, h, w, n_scalars)
+    aim = None
+    if ckpt_stage == "swing":
+        if not args.aim:
+            raise SystemExit("swing checkpoint: pass --aim <aim checkpoint>")
+        policy = SwingPolicy(stack, h, w, n_scalars)
+        aim = AimPolicy(stack, h, w, n_scalars)
+        aim.load_state_dict(torch.load(args.aim, map_location="cpu",
+                                       weights_only=False)["policy"])
+        aim.eval()
+    else:
+        policy = AimPolicy(stack, h, w, n_scalars)
     policy.load_state_dict(ckpt["policy"])
     policy.eval()
 
@@ -48,22 +62,35 @@ def main() -> None:
     with torch.no_grad():
         while len(stats) < args.episodes:
             masks, scalars = env.observe()
-            action, _, _, _ = policy.act(torch.from_numpy(masks).float(),
-                                         torch.from_numpy(scalars),
-                                         deterministic=True)
-            a = action.numpy()
-            env.step(a[:, 0], a[:, 1])
+            tm = torch.from_numpy(masks).float()
+            ts = torch.from_numpy(scalars)
+            action, _, _, _ = policy.act(tm, ts, deterministic=True)
+            if aim is not None:
+                aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                env.step(aim_a[:, 0], aim_a[:, 1],
+                         attack=action.numpy().astype(np.uint8))
+            else:
+                a = action.numpy()
+                env.step(a[:, 0], a[:, 1])
             stats.extend(env.drain_stats())
 
     stats = stats[: args.episodes]
-    succ = [s["success"] for s in stats]
-    lens = [s["length"] for s in stats if s["success"]]
     rets = [s["return"] for s in stats]
     print(f"checkpoint: {args.checkpoint} (trained {ckpt['step']} steps)")
     print(f"episodes:   {len(stats)}")
-    print(f"success:    {np.mean(succ):.1%}")
-    print(f"time-to-lock (successful): median {np.median(lens) if lens else float('nan'):.0f} "
-          f"mean {np.mean(lens) if lens else float('nan'):.0f} ticks")
+    if ckpt_stage == "swing":
+        hits = [s["hits"] for s in stats]
+        whiffs = [s["whiffs"] for s in stats]
+        swings = sum(hits) + sum(whiffs)
+        print(f"hits/ep:    mean {np.mean(hits):.1f}   whiffs/ep: mean {np.mean(whiffs):.1f}")
+        print(f"hit rate:   {sum(hits) / max(swings, 1):.1%} of {swings} swings")
+    else:
+        succ = [s["success"] for s in stats]
+        lens = [s["length"] for s in stats if s["success"]]
+        print(f"success:    {np.mean(succ):.1%}")
+        print(f"time-to-lock (successful): median {np.median(lens) if lens else float('nan'):.0f} "
+              f"mean {np.mean(lens) if lens else float('nan'):.0f} ticks")
     print(f"return:     mean {np.mean(rets):.2f}")
     env.close()
 
