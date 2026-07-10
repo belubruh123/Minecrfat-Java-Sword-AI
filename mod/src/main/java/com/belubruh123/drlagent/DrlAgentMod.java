@@ -2,9 +2,11 @@ package com.belubruh123.drlagent;
 
 import com.belubruh123.drlagent.bridge.BridgeConfig;
 import com.belubruh123.drlagent.bridge.BridgeServer;
+import com.belubruh123.drlagent.bridge.EnvSession;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 
 import net.minecraft.resources.Identifier;
 
@@ -19,6 +21,7 @@ public class DrlAgentMod implements ModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private static BridgeServer bridge;
+	private static EnvSession session;
 
 	@Override
 	public void onInitialize() {
@@ -31,9 +34,18 @@ public class DrlAgentMod implements ModInitializer {
 			try {
 				bridge = new BridgeServer(BridgeConfig.port());
 				bridge.start();
+				session = new EnvSession(bridge);
 			} catch (IOException e) {
 				throw new RuntimeException("Failed to start DRL training bridge", e);
 			}
+		});
+
+		ServerTickEvents.START_SERVER_TICK.register(server -> {
+			if (session != null) session.onTickStart(server);
+		});
+
+		ServerTickEvents.END_SERVER_TICK.register(server -> {
+			if (session != null) session.onTickEnd(server);
 		});
 
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {

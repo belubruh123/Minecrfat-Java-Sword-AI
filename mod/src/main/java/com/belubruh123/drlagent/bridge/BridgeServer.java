@@ -80,6 +80,13 @@ public final class BridgeServer {
 		return latestConfig;
 	}
 
+	/** Drops the current trainer connection (e.g. after an I/O error mid-step). */
+	public void dropConnection() {
+		Connection conn = connection;
+		connection = null;
+		if (conn != null) conn.close();
+	}
+
 	public void stop() {
 		try {
 			if (listener != null) listener.close();
