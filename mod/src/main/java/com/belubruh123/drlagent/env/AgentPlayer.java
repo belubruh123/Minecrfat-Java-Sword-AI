@@ -5,6 +5,7 @@ import com.mojang.authlib.GameProfile;
 import net.fabricmc.fabric.api.entity.FakePlayer;
 
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
 
 /**
  * Fake player that actually simulates. Two vanilla obstacles:
@@ -24,10 +25,47 @@ public final class AgentPlayer extends FakePlayer {
 		return false;
 	}
 
+	public int ticker() {
+		return this.attackStrengthTicker;
+	}
+
+	// FakePlayer hardcodes blanket invulnerability (bytecode: iconst_1),
+	// which silently swallows sword hits — agents must take damage.
+	@Override
+	public boolean isInvulnerableTo(ServerLevel level, DamageSource source) {
+		return false;
+	}
+
 	@Override
 	public void tick() {
-		this.baseTick();               // hurtTime/invulnerability/fire/air timers
+		this.baseTick();               // hurtTime/fire/air timers
+		// baseTick skips the invulnerability countdown for ServerPlayers
+		// (bytecode: instanceof guard) — the connection-driven tick path we
+		// bypass normally does it, so do it here or one hit blocks all others
+		if (this.invulnerableTime > 0) {
+			this.invulnerableTime--;
+		}
 		this.aiStep();                 // travel() from xxa/zza: gravity, collision, sprint
 		this.attackStrengthTicker++;   // attack cooldown recharge (vanilla: Player.tick)
+		syncEquipmentAttributes();     // apply sword/armor attribute modifiers
+	}
+
+	// Vanilla applies equipment attribute modifiers (sword attack speed/damage,
+	// armor points) in LivingEntity.tick() via private detectEquipmentUpdates();
+	// our composite tick skips it, so invoke it reflectively (dev env runs
+	// unobfuscated, so the mojmap name resolves at runtime).
+	private static java.lang.reflect.Method detectEquipment;
+
+	private void syncEquipmentAttributes() {
+		try {
+			if (detectEquipment == null) {
+				detectEquipment = net.minecraft.world.entity.LivingEntity.class
+						.getDeclaredMethod("detectEquipmentUpdates");
+				detectEquipment.setAccessible(true);
+			}
+			detectEquipment.invoke(this);
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException("detectEquipmentUpdates reflection failed", e);
+		}
 	}
 }

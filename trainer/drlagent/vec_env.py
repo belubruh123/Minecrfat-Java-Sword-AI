@@ -17,6 +17,7 @@ INFO_ON_TARGET = 1
 INFO_HIT_LANDED = 2
 INFO_HIT_TAKEN = 4
 INFO_ELEVATED = 8
+INFO_WHIFF = 16
 
 SCALAR_SCALE = np.array([1 / 0.3, 1, 1, 1, 1 / 3.0, 1, 1, 1, 1 / 3.5],
                         dtype=np.float32)
@@ -45,6 +46,8 @@ class MinecraftVecEnv:
         self.frames = np.zeros((self.n, frame_stack, self.h, self.w), np.uint8)
         self.episode_return = np.zeros(self.n, np.float64)
         self.episode_len = np.zeros(self.n, np.int64)
+        self.episode_hits = np.zeros(self.n, np.int64)
+        self.episode_whiffs = np.zeros(self.n, np.int64)
         self.finished: list[dict] = []  # stats of episodes done since last drain
 
         self.record_arena = record_arena
@@ -92,7 +95,8 @@ class MinecraftVecEnv:
         if self.record_dir is not None:
             a = self.record_arena
             self._rec["masks"].append(np.packbits(masks[a]))
-            self._rec["actions"].append([float(dyaw[a]), float(dpitch[a])])
+            self._rec["actions"].append([float(dyaw[a]), float(dpitch[a]),
+                                         0.0 if attack is None else float(attack[a])])
             self._rec["rewards"].append(float(obs.rewards[a]))
             self._rec["scalars"].append(obs.scalars[a].copy())
             self._rec["infos"].append(int(obs.infos[a]))
@@ -101,6 +105,8 @@ class MinecraftVecEnv:
 
         self.episode_return += obs.rewards
         self.episode_len += 1
+        self.episode_hits += (obs.infos & INFO_HIT_LANDED) > 0
+        self.episode_whiffs += (obs.infos & INFO_WHIFF) > 0
         for i in np.nonzero(dones)[0]:
             self.finished.append({
                 "arena": int(i),
@@ -108,9 +114,13 @@ class MinecraftVecEnv:
                 "length": int(self.episode_len[i]),
                 "success": bool(obs.rewards[i] > 1.0),  # lock bonus present
                 "elevated": bool(obs.infos[i] & INFO_ELEVATED),
+                "hits": int(self.episode_hits[i]),
+                "whiffs": int(self.episode_whiffs[i]),
             })
             self.episode_return[i] = 0.0
             self.episode_len[i] = 0
+            self.episode_hits[i] = 0
+            self.episode_whiffs[i] = 0
 
         # done obs is the first frame of the new episode: restart its stack
         self.frames = np.roll(self.frames, -1, axis=1)

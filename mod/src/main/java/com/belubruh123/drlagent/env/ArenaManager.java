@@ -25,6 +25,8 @@ public final class ArenaManager {
 				"gamerule advance_time false",
 				"gamerule advance_weather false",
 				"gamerule immediate_respawn true",
+				"gamerule pvp true",  // 26.1 moved pvp out of server.properties
+				"gamerule fall_damage false",
 		};
 		for (String rule : rules) {
 			server.getCommands().performPrefixedCommand(server.createCommandSourceStack(), rule);

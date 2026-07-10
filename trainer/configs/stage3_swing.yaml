@@ -1,0 +1,33 @@
+# Stage 3: sword-swing timing and reach discipline. The stage-2 aim net is
+# frozen and steers the crosshair; PPO trains a fresh attack policy.
+# Run from trainer/: python train.py configs/stage3_swing.yaml --run stage3_swing
+stage: swing
+seed: 3
+total_steps: 2_000_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../runs/stage2_vertical_v2/best.pt
+
+curriculum:
+  horizontal_prob: 1.0   # grounded strafing opponent; elevation is aim's problem
+  max_elev: 0.0
+  dist_min: 2.0
+  dist_max: 6.0
+  yaw_range: 90.0
+  episode_ticks: 300
+  lock_ticks: 3          # unused by the swing stage
+  opponent: strafe
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

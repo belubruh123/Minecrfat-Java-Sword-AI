@@ -11,20 +11,38 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from .models import AimPolicy
+from .models import AimPolicy, SwingPolicy
 from .vec_env import MinecraftVecEnv
 
 
 class PPOTrainer:
-    def __init__(self, env: MinecraftVecEnv, run_dir: Path, cfg: dict):
+    """Trains one policy per stage. "aim" trains the Gaussian aim net; "swing"
+    trains a Categorical attack net while a frozen aim checkpoint steers."""
+
+    def __init__(self, env: MinecraftVecEnv, run_dir: Path, cfg: dict,
+                 stage: str = "aim", aim_ckpt: str | None = None):
         self.env = env
         self.cfg = cfg
         self.run_dir = run_dir
+        self.stage = stage
         run_dir.mkdir(parents=True, exist_ok=True)
         self.device = torch.device("cpu")
         torch.set_num_threads(cfg.get("torch_threads", 3))
 
-        self.policy = AimPolicy(env.stack, env.h, env.w, env.n_scalars)
+        self.aim = None
+        if stage == "swing":
+            if not aim_ckpt:
+                raise ValueError("swing stage needs aim_checkpoint in the config")
+            self.aim = AimPolicy(env.stack, env.h, env.w, env.n_scalars)
+            self.aim.load_state_dict(torch.load(aim_ckpt, map_location="cpu",
+                                                weights_only=False)["policy"])
+            self.aim.eval()
+            self.aim.requires_grad_(False)
+            self.policy = SwingPolicy(env.stack, env.h, env.w, env.n_scalars)
+            self.act_dim = 1
+        else:
+            self.policy = AimPolicy(env.stack, env.h, env.w, env.n_scalars)
+            self.act_dim = 2
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=cfg["lr"], eps=1e-5)
         self.writer = SummaryWriter(str(run_dir / "tb"))
@@ -35,7 +53,7 @@ class PPOTrainer:
         t = self.rollout_len
         self.b_masks = np.zeros((t, n, env.stack, env.h, env.w), np.uint8)
         self.b_scalars = np.zeros((t, n, env.n_scalars), np.float32)
-        self.b_actions = np.zeros((t, n, 2), np.float32)
+        self.b_actions = np.zeros((t, n, self.act_dim), np.float32)
         self.b_logprobs = np.zeros((t, n), np.float32)
         self.b_rewards = np.zeros((t, n), np.float32)
         self.b_dones = np.zeros((t, n), np.float32)
@@ -59,9 +77,17 @@ class PPOTrainer:
             tm = torch.from_numpy(masks).float()
             ts = torch.from_numpy(scalars)
             action, logprob, _, value = self.policy.act(tm, ts)
-            a = action.numpy()
-            rewards, dones, _ = env.step(a[:, 0], a[:, 1])
-            self.b_actions[t] = a
+            if self.stage == "swing":
+                aim_a, _, _, _ = self.aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                a = action.numpy()
+                rewards, dones, _ = env.step(aim_a[:, 0], aim_a[:, 1],
+                                             attack=a.astype(np.uint8))
+                self.b_actions[t] = a[:, None]
+            else:
+                a = action.numpy()
+                rewards, dones, _ = env.step(a[:, 0], a[:, 1])
+                self.b_actions[t] = a
             self.b_logprobs[t] = logprob.numpy()
             self.b_values[t] = value.numpy()
             self.b_rewards[t] = rewards * reward_scale
@@ -102,7 +128,9 @@ class PPOTrainer:
 
         flat_masks = self.b_masks.reshape(batch, *self.b_masks.shape[2:])
         flat_scalars = self.b_scalars.reshape(batch, -1)
-        flat_actions = torch.from_numpy(self.b_actions.reshape(batch, 2))
+        flat_actions = torch.from_numpy(self.b_actions.reshape(batch, self.act_dim))
+        if self.stage == "swing":
+            flat_actions = flat_actions.long().squeeze(-1)
         flat_logprobs = torch.from_numpy(self.b_logprobs.reshape(batch))
         flat_adv = torch.from_numpy(advantages.reshape(batch))
         flat_returns = torch.from_numpy(returns.reshape(batch))
@@ -174,6 +202,9 @@ class PPOTrainer:
             summary["ep_len"] = float(np.mean([s["length"] for s in stats]))
             summary["success"] = float(np.mean([s["success"] for s in stats]))
             summary["episodes"] = len(stats)
+            if self.stage == "swing":
+                summary["ep_hits"] = float(np.mean([s["hits"] for s in stats]))
+                summary["ep_whiffs"] = float(np.mean([s["whiffs"] for s in stats]))
         for k, v in summary.items():
             if k not in ("step", "episodes"):
                 self.writer.add_scalar(k, v, self.global_step)
@@ -187,6 +218,7 @@ class PPOTrainer:
             "optimizer": self.optimizer.state_dict(),
             "step": self.global_step,
             "cfg": self.cfg,
+            "stage": self.stage,
             "obs_shape": [self.env.stack, self.env.h, self.env.w,
                           self.env.n_scalars],
         }, self.run_dir / f"{name}.pt")

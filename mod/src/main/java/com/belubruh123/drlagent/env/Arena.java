@@ -44,10 +44,16 @@ public final class Arena {
 	private static final float LOCK_SPEED_BONUS = 2.0f;
 	private static final float TIMEOUT_PENALTY = 1.0f;
 
+	// Swing-stage rewards: a landed hit pays the attack-cooldown charge at the
+	// moment of the swing (full charge = +1), any swing that fails to damage
+	// (out of reach, occluded, or inside the invulnerability window) is a whiff.
+	private static final float WHIFF_PENALTY = 0.3f;
+
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
 	public static final int INFO_HIT_TAKEN = 4;
 	public static final int INFO_ELEVATED = 8;
+	public static final int INFO_WHIFF = 16;
 
 	private final int index;
 	private final ServerLevel level;
@@ -68,9 +74,12 @@ public final class Arena {
 	private float lastReach;
 	private boolean attackPressed;
 	private boolean hitLanded;
+	private float lastAttackCharge;
 	private boolean forceReset;
 	private boolean elevatedEpisode;
 	private float opponentHealthBefore;
+	private int strafeDir;
+	private int strafeFlipTicks;
 
 	public Arena(int index, ServerLevel level, Random rng) {
 		this.index = index;
@@ -154,6 +163,8 @@ public final class Arena {
 		place(opponent, ox, oy, oz, opponentYaw, 0);
 		// A hovering opponent is a stationary aim dummy; grounded ones use physics.
 		opponent.setNoGravity(!horizontal || "static".equals(cfg.opponent));
+		strafeDir = rng.nextBoolean() ? 1 : -1;
+		strafeFlipTicks = 20 + rng.nextInt(40);
 
 		opponentHealthBefore = opponent.getHealth();
 		prevAngErr = currentAngleError();
@@ -169,6 +180,8 @@ public final class Arena {
 		p.setHealth(p.getMaxHealth());
 		p.getFoodData().setFoodLevel(20);
 		p.resetAttackStrengthTicker();
+		p.invulnerableTime = 0;
+		p.hurtTime = 0;
 		p.zza = 0;
 		p.xxa = 0;
 		p.setSprinting(false);
@@ -193,20 +206,52 @@ public final class Arena {
 		agent.setSprinting(forward);
 
 		if (attack) {
+			// 26.1: swing() itself resets the attack ticker (even air swings),
+			// so sample the charge before anything else
+			lastAttackCharge = agent.getAttackStrengthScale(0.5f);
 			agent.swing(InteractionHand.MAIN_HAND);
 			Vec3 eye = agent.getEyePosition();
 			Vec3 end = eye.add(agent.getViewVector(1.0f).scale(agent.entityInteractionRange()));
 			Optional<Vec3> hit = opponent.getBoundingBox().clip(eye, end);
 			if (hit.isPresent() && !blockedByBlocks(eye, hit.get())) {
-				lastReach = (float) eye.distanceTo(hit.get());
-				hitLanded = true;
+				int hurtBefore = opponent.hurtTime;
 				agent.attack(opponent);
+				// hurt() refuses damage inside the invulnerability window; a
+				// fresh hurtTime is the signal the swing actually connected
+				hitLanded = opponent.hurtTime > hurtBefore;
+				if (hitLanded) {
+					lastReach = (float) eye.distanceTo(hit.get());
+				}
 			}
 		}
 
-		// Fake players have no client connection driving them; tick them here.
-		agent.tick();
-		opponent.tick();
+		if ("strafe".equals(cfg.opponent)) {
+			tickStrafeOpponent();
+		}
+		// No manual agent/opponent tick: the server level ticks entities in
+		// force-loaded chunks itself — adding one here double-ticks physics
+		// and the attack-cooldown ticker.
+	}
+
+	/** Circle-strafe around the agent, flipping direction at random intervals
+	 * and steering back toward sword range when knockback pushes it out. */
+	private void tickStrafeOpponent() {
+		double dx = agent.getX() - opponent.getX();
+		double dz = agent.getZ() - opponent.getZ();
+		float yawToAgent = (float) Math.toDegrees(Math.atan2(-dx, dz));
+		opponent.setYRot(yawToAgent);
+		opponent.setYHeadRot(yawToAgent);
+		if (--strafeFlipTicks <= 0) {
+			strafeDir = -strafeDir;
+			strafeFlipTicks = 20 + rng.nextInt(40);
+		}
+		opponent.xxa = 0.98f * strafeDir;
+		// oscillate around sword reach: walk back in after knockback, give
+		// ground when crowded — keeps in-range/out-of-range transitions coming
+		// so the swing model sees both sides of the reach boundary. Center
+		// distance 3.0 ≈ ray-to-hitbox 2.7 (box half-width 0.3), inside reach.
+		double dist = opponent.distanceTo(agent);
+		opponent.zza = dist > 3.0 ? 0.7f : (dist < 2.0 ? -0.5f : 0.0f);
 	}
 
 	public record StepResult(float reward, boolean done, int info) {
@@ -215,6 +260,10 @@ public final class Arena {
 	/** Called after the world tick: computes reward, handles episode end + auto-reset. */
 	public StepResult step() {
 		episodeTick++;
+
+		if ("swing".equals(cfg.stage)) {
+			return stepSwing();
+		}
 
 		boolean onTarget = isCrosshairOnTarget();
 		double angErr = currentAngleError();
@@ -254,6 +303,33 @@ public final class Arena {
 			done = true;
 		}
 
+		if (done) {
+			reset();
+		}
+		return new StepResult(reward, done, info);
+	}
+
+	/** Swing stage: the (frozen) aim model steers, this reward only judges the
+	 * attack button. Fixed-length episodes; the opponent never dies (healed each
+	 * tick) so knockback keeps varying the range instead of ending the fight. */
+	private StepResult stepSwing() {
+		float reward = 0;
+		if (attackPressed) {
+			reward += hitLanded ? lastAttackCharge : -WHIFF_PENALTY;
+		}
+
+		int info = 0;
+		if (isCrosshairOnTarget()) info |= INFO_ON_TARGET;
+		if (hitLanded) info |= INFO_HIT_LANDED;
+		else if (attackPressed) info |= INFO_WHIFF;
+		if (elevatedEpisode) info |= INFO_ELEVATED;
+		if (agent.hurtTime > 0) info |= INFO_HIT_TAKEN;
+
+		opponent.setHealth(opponent.getMaxHealth());
+		opponent.getFoodData().setFoodLevel(20);
+
+		boolean fellOff = opponent.getY() < floorY - 2;
+		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset;
 		if (done) {
 			reset();
 		}
