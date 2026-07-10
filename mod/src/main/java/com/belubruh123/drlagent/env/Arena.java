@@ -35,6 +35,9 @@ public final class Arena {
 
 	// Stage-1 aim reward constants
 	private static final float ON_TARGET_REWARD = 0.3f;
+	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
+	// outpays the lock bonus and the policy farms it by never completing a lock.
+	private static final int MAX_PAID_ON_TARGET = 10;
 	private static final float SHAPING_SCALE = 1.5f;
 	private static final float TIME_PENALTY = 0.02f;
 	private static final float LOCK_BONUS = 3.0f;
@@ -60,6 +63,7 @@ public final class Arena {
 	private EnvConfig cfg = new EnvConfig();
 	private int episodeTick;
 	private int consecOnTarget;
+	private int paidOnTargetTicks;
 	private double prevAngErr;
 	private float lastReach;
 	private boolean attackPressed;
@@ -126,6 +130,7 @@ public final class Arena {
 	public void reset() {
 		episodeTick = 0;
 		consecOnTarget = 0;
+		paidOnTargetTicks = 0;
 		lastReach = 0;
 		forceReset = false;
 
@@ -217,7 +222,10 @@ public final class Arena {
 		float reward = 0;
 		reward += (float) (SHAPING_SCALE * (prevAngErr - angErr) / 180.0);
 		if (onTarget) {
-			reward += ON_TARGET_REWARD;
+			if (paidOnTargetTicks < MAX_PAID_ON_TARGET) {
+				reward += ON_TARGET_REWARD;
+				paidOnTargetTicks++;
+			}
 			consecOnTarget++;
 		} else {
 			consecOnTarget = 0;
