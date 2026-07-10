@@ -1,0 +1,8 @@
+numpy
+pyyaml
+fastapi
+uvicorn[standard]
+tensorboard
+gymnasium
+# torch installed from https://download.pytorch.org/whl/cpu (CPU-only wheel)
+torch

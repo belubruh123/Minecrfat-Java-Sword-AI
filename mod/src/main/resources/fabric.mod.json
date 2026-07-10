@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "drlagent",
+	"version": "${version}",
+	"name": "DRL Agent",
+	"description": "Trains a deep reinforcement learning agent to play sword PvP via headless parallel training arenas.",
+	"authors": [
+		"BeluBruh123"
+	],
+	"contact": {},
+	"license": "MIT",
+	"icon": "assets/drlagent/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.belubruh123.drlagent.DrlAgentMod"
+		],
+		"client": [
+			"com.belubruh123.drlagent.client.DrlAgentModClient"
+		]
+	},
+	"mixins": [
+		"drlagent.mixins.json",
+		{
+			"config": "drlagent.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
