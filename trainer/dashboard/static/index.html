@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRL Agent Training</title>
+<style>
+  :root {
+    --surface: #1a1a19; --panel: #232322; --border: #3a3a38;
+    --text: #ffffff; --text-2: #c3c2b7; --text-3: #8f8e85;
+    --series: #3987e5; --accent: #c98500; --good: #199e70; --bad: #e66767;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --surface: #fcfcfb; --panel: #ffffff; --border: #e2e1dc;
+      --text: #0b0b0b; --text-2: #52514e; --text-3: #85847c;
+      --series: #2a78d6; --accent: #eda100; --good: #1baf7a; --bad: #e34948;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--surface); color: var(--text);
+         font: 14px/1.45 system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 16px; font-weight: 600; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           margin-bottom: 14px; }
+  select, button, label { background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+    font: inherit; }
+  button { cursor: pointer; }
+  button.active { border-color: var(--series); color: var(--series); }
+  .layout { display: grid; grid-template-columns: minmax(440px, 1fr) 1fr;
+            gap: 14px; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+           border-radius: 10px; padding: 12px; }
+  .panel h2 { font-size: 12px; font-weight: 600; color: var(--text-2);
+              text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+  #view { width: 100%; aspect-ratio: 426/240; image-rendering: pixelated;
+          background: #000; border-radius: 6px; display: block; }
+  .hud { display: flex; gap: 14px; margin-top: 8px; color: var(--text-2);
+         font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+  .hud b { color: var(--text); font-weight: 600; }
+  .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center;
+              flex-wrap: wrap; }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--series); }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .charts { grid-template-columns: 1fr; } }
+  .chart svg { width: 100%; height: 120px; display: block; }
+  .chart .val { color: var(--text); font-weight: 600; font-size: 15px;
+                font-variant-numeric: tabular-nums; }
+  .tip { position: fixed; pointer-events: none; background: var(--panel);
+         border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+         font-size: 12px; color: var(--text); display: none; z-index: 10;
+         font-variant-numeric: tabular-nums; }
+  .muted { color: var(--text-3); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DRL Agent Training</h1>
+  <select id="runSel" title="training run"></select>
+  <select id="epSel" title="recorded episode"></select>
+  <button id="follow" class="active" title="auto-play newest episode">follow latest</button>
+  <span id="status" class="muted">connecting…</span>
+</header>
+
+<div class="layout">
+  <section class="panel">
+    <h2>Agent's eye (replayed at real-time 20 ticks/s)</h2>
+    <canvas id="view" width="213" height="120"></canvas>
+    <div class="hud">
+      <span>tick <b id="hTick">–</b></span>
+      <span>reward <b id="hRew">–</b></span>
+      <span>return <b id="hRet">–</b></span>
+      <span>Δyaw <b id="hYaw">–</b></span>
+      <span id="hFlags"></span>
+    </div>
+    <div class="controls">
+      <button id="play">pause</button>
+      <input type="range" id="seek" min="0" max="0" value="0">
+      <select id="speed">
+        <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+        <option value="1" selected>1× (real time)</option><option value="2">2×</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="charts" id="charts"></section>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------- charts (single-series line, hover crosshair + tooltip) ----------
+const CHARTS = [
+  {key: "ep_return", title: "Episode return", fmt: v => v.toFixed(2)},
+  {key: "success",   title: "Lock success rate", fmt: v => (100 * v).toFixed(0) + "%"},
+  {key: "ep_len",    title: "Ticks to lock (episode length)", fmt: v => v.toFixed(0)},
+  {key: "sps",       title: "Training steps / s", fmt: v => v.toFixed(0)},
+];
+
+function drawChart(host, pts, spec) {
+  const W = 320, H = 120, padL = 6, padR = 6, padT = 18, padB = 6;
+  host.innerHTML = "";
+  const head = document.createElement("div");
+  head.innerHTML = `<h2>${spec.title}</h2><span class="val">${
+      pts.length ? spec.fmt(pts[pts.length - 1][1]) : "–"}</span>`;
+  host.appendChild(head);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  host.appendChild(svg);
+  if (pts.length < 2) return;
+
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let y0 = Math.min(...ys), y1 = Math.max(...ys);
+  if (y0 === y1) { y0 -= 1; y1 += 1; }
+  const X = v => padL + (v - x0) / (x1 - x0) * (W - padL - padR);
+  const Y = v => H - padB - (v - y0) / (y1 - y0) * (H - padT - padB);
+
+  for (const gy of [y0, (y0 + y1) / 2, y1]) {           // recessive grid
+    const l = document.createElementNS(ns, "line");
+    l.setAttribute("x1", padL); l.setAttribute("x2", W - padR);
+    l.setAttribute("y1", Y(gy)); l.setAttribute("y2", Y(gy));
+    l.setAttribute("stroke", css("--border")); l.setAttribute("stroke-width", "1");
+    svg.appendChild(l);
+  }
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", pts.map((p, i) =>
+      (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(""));
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", css("--series"));
+  path.setAttribute("stroke-width", "2");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(path);
+
+  const cross = document.createElementNS(ns, "line");
+  cross.setAttribute("stroke", css("--text-3")); cross.setAttribute("stroke-width", "1");
+  cross.setAttribute("y1", padT); cross.setAttribute("y2", H - padB);
+  cross.style.display = "none";
+  svg.appendChild(cross);
+  const tip = $("tip");
+  svg.addEventListener("mousemove", e => {
+    const r = svg.getBoundingClientRect();
+    const mx = (e.clientX - r.left) / r.width * W;
+    let best = 0, bd = 1e9;
+    pts.forEach((p, i) => { const d = Math.abs(X(p[0]) - mx); if (d < bd) { bd = d; best = i; } });
+    const p = pts[best];
+    cross.style.display = "";
+    cross.setAttribute("x1", X(p[0])); cross.setAttribute("x2", X(p[0]));
+    tip.style.display = "block";
+    tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY - 10) + "px";
+    tip.textContent = `step ${(p[0] / 1000).toFixed(0)}k — ${spec.fmt(p[1])}`;
+  });
+  svg.addEventListener("mouseleave", () => { cross.style.display = "none"; tip.style.display = "none"; });
+}
+
+function renderCharts(metrics) {
+  const hostRoot = $("charts");
+  if (!hostRoot.childElementCount) {
+    for (const _ of CHARTS) {
+      const d = document.createElement("div");
+      d.className = "panel chart";
+      hostRoot.appendChild(d);
+    }
+  }
+  CHARTS.forEach((spec, i) => {
+    const pts = metrics.filter(m => spec.key in m).map(m => [m.step, m[spec.key]]);
+    const thin = pts.length > 240 ? pts.filter((_, j) => j % Math.ceil(pts.length / 240) === 0) : pts;
+    drawChart(hostRoot.children[i], thin, spec);
+  });
+}
+
+// ---------- episode replay ----------
+let ep = null, frame = 0, playing = true, timer = null, curRun = null, curEp = null;
+
+function b64bits(b64, h, w) {
+  const bin = atob(b64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const out = new Uint8ClampedArray(h * w);
+  for (let i = 0; i < h * w; i++)
+    out[i] = (bytes[i >> 3] >> (7 - (i & 7))) & 1;
+  return out;
+}
+
+function drawFrame() {
+  if (!ep) return;
+  const [h, w] = ep.shape;
+  const cv = $("view"); cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d");
+  const bits = b64bits(ep.frames[frame], h, w);
+  const img = ctx.createImageData(w, h);
+  for (let i = 0; i < bits.length; i++) {
+    const v = bits[i] ? 255 : 0, o = i * 4;
+    img.data[o] = v; img.data[o + 1] = v; img.data[o + 2] = v; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  ctx.strokeStyle = css("--accent");                    // crosshair overlay
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(w / 2 - 4, h / 2); ctx.lineTo(w / 2 + 4, h / 2);
+  ctx.moveTo(w / 2, h / 2 - 4); ctx.lineTo(w / 2, h / 2 + 4);
+  ctx.stroke();
+
+  $("hTick").textContent = frame + 1 + "/" + ep.frames.length;
+  $("hRew").textContent = ep.rewards[frame].toFixed(3);
+  $("hRet").textContent = ep.rewards.slice(0, frame + 1).reduce((a, b) => a + b, 0).toFixed(2);
+  $("hYaw").textContent = (ep.actions[frame][0] * 15).toFixed(1) + "°";
+  const inf = ep.infos[frame];
+  $("hFlags").innerHTML =
+      (inf & 1 ? '<b style="color:var(--good)">ON TARGET</b> ' : "") +
+      (inf & 2 ? '<b style="color:var(--accent)">HIT</b> ' : "") +
+      (inf & 4 ? '<b style="color:var(--bad)">HURT</b>' : "");
+  $("seek").max = ep.frames.length - 1;
+  $("seek").value = frame;
+}
+
+function tickPlayer() {
+  clearInterval(timer);
+  const fps = 20 * parseFloat($("speed").value);
+  timer = setInterval(() => {
+    if (!ep || !playing) return;
+    frame = (frame + 1) % ep.frames.length;
+    if (frame === 0 && $("follow").classList.contains("active")) loadLatest();
+    drawFrame();
+  }, 1000 / fps);
+}
+
+async function j(url) { const r = await fetch(url); if (!r.ok) throw new Error(url); return r.json(); }
+
+async function loadEpisode(run, name) {
+  ep = await j(`/api/run/${run}/episode/${name}`);
+  curEp = name; frame = 0;
+  drawFrame();
+}
+
+async function loadLatest() {
+  if (!curRun) return;
+  const eps = await j(`/api/run/${curRun}/episodes`);
+  const sel = $("epSel");
+  sel.innerHTML = eps.map(e =>
+      `<option value="${e.name}">${e.name.slice(-6)} · ${e.frames}t · R ${e.return.toFixed(1)}</option>`).join("");
+  if (eps.length && eps[0].name !== curEp) await loadEpisode(curRun, eps[0].name);
+}
+
+async function refreshMetrics() {
+  if (!curRun) return;
+  try {
+    renderCharts(await j(`/api/run/${curRun}/metrics`));
+    $("status").textContent = "run: " + curRun;
+  } catch { $("status").textContent = "metrics unavailable"; }
+}
+
+async function boot() {
+  const runs = await j("/api/runs");
+  const sel = $("runSel");
+  sel.innerHTML = runs.map(r => `<option>${r.name}</option>`).join("");
+  if (!runs.length) { $("status").textContent = "no runs yet"; return; }
+  curRun = runs[0].name;
+  sel.onchange = () => { curRun = sel.value; curEp = null; loadLatest(); refreshMetrics(); };
+  $("epSel").onchange = e => { $("follow").classList.remove("active"); loadEpisode(curRun, e.target.value); };
+  $("follow").onclick = e => { e.target.classList.toggle("active"); loadLatest(); };
+  $("play").onclick = e => { playing = !playing; e.target.textContent = playing ? "pause" : "play"; };
+  $("seek").oninput = e => { playing = false; $("play").textContent = "play"; frame = +e.target.value; drawFrame(); };
+  $("speed").onchange = tickPlayer;
+  await loadLatest();
+  await refreshMetrics();
+  tickPlayer();
+  setInterval(refreshMetrics, 5000);
+  setInterval(() => { if ($("follow").classList.contains("active")) loadLatest(); }, 4000);
+}
+boot().catch(e => { $("status").textContent = "error: " + e.message; });
+</script>
+</body>
+</html>
