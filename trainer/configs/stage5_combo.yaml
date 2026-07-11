@@ -1,10 +1,10 @@
 # Stage 5: combo fighting — sprint-hit knockback chains and crits. Frozen aim
 # steers, frozen swing (sampled) picks swing ticks; PPO trains one 8-way head
 # over W / jump / sprint (bit 0/1/2). Chained clean hits (<=40 ticks apart,
-# nothing taken in between) pay escalating bonuses; crits pay +0.5x charge,
-# sprint hits +0.6x — sprinting and critting are mutually exclusive per swing,
-# so the policy has to learn when to W-tap into knockback and when to
-# jump-crit. Budget extended 3M -> 3.5M for the two mid-run reward fixes.
+# nothing taken in between) pay escalating bonuses; sprint hits +0.6x charge,
+# crits +0.35x, takeoffs -0.05 — sprint combos are the main plan, crits the
+# opportunistic garnish, and jumping only pays when it converts to a crit.
+# Budget extended 3M -> 3.5M for the mid-run reward fixes.
 # Run from trainer/: python train.py configs/stage5_combo.yaml --run stage5_combo
 stage: combo
 seed: 5

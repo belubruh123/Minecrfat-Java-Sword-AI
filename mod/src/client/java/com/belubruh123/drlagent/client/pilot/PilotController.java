@@ -59,6 +59,34 @@ public final class PilotController {
 	private int pendingReachTicks;
 	private int prevTargetHurt;
 
+	/** Fight stats for the HUD panel and /pilot status. Hits are counted when
+	 * the server confirms them (target hurtTime jump), same as lastReach; the
+	 * combo rules mirror training (Arena.stepCombo): hits <= 40 ticks apart
+	 * with nothing taken in between chain, a chain of 2+ is a combo. */
+	public record Stats(int hits, int sprintHits, int crits, int chain,
+			int bestChain, int combos, int taken) {
+	}
+
+	private static final int STAT_CHAIN_WINDOW = 40;
+	private int statHits;
+	private int statSprintHits;
+	private int statCrits;
+	private int statChain;
+	private int statBestChain;
+	private int statCombos;
+	private int statTaken;
+	private int statTick;
+	private int lastHitStatTick;
+	private boolean takenSinceLastHit;
+	private boolean pendingSprint;
+	private boolean pendingCrit;
+	private int prevSelfHurt;
+
+	public Stats stats() {
+		return new Stats(statHits, statSprintHits, statCrits, statChain,
+				statBestChain, statCombos, statTaken);
+	}
+
 	public boolean isEngaged() {
 		return bridge != null;
 	}
@@ -122,6 +150,13 @@ public final class PilotController {
 		pendingReach = 0;
 		pendingReachTicks = 0;
 		prevTargetHurt = 0;
+		statHits = statSprintHits = statCrits = 0;
+		statChain = statBestChain = statCombos = statTaken = 0;
+		statTick = 0;
+		lastHitStatTick = -STAT_CHAIN_WINDOW - 1;
+		takenSinceLastHit = false;
+		pendingSprint = pendingCrit = false;
+		prevSelfHurt = player.hurtTime;
 		msg(mc, "engaged — press the toggle again to take back control");
 	}
 
@@ -185,6 +220,13 @@ public final class PilotController {
 	 * costs the cooldown, exactly the mechanic the swing policy trained on).
 	 */
 	private void attack(Minecraft mc, LocalPlayer player) {
+		// sample BEFORE the swing resets the ticker; same gates as
+		// Player.attack (26.1 bytecode) and Arena.applyAction
+		float charge = player.getAttackStrengthScale(0.5f);
+		boolean critCandidate = charge > 0.9f && player.fallDistance > 0
+				&& !player.onGround() && !player.onClimbable() && !player.isInWater()
+				&& !player.isPassenger() && !player.isSprinting();
+		boolean sprintCandidate = charge > 0.9f && player.isSprinting();
 		if (target != null) {
 			Vec3 eye = player.getEyePosition();
 			Vec3 end = eye.add(player.getViewVector(1.0f).scale(player.entityInteractionRange()));
@@ -192,6 +234,8 @@ public final class PilotController {
 			if (hit.isPresent() && !blockedByBlocks(mc, player, eye, hit.get())) {
 				pendingReach = (float) eye.distanceTo(hit.get());
 				pendingReachTicks = REACH_CONFIRM_TICKS;
+				pendingCrit = critCandidate;
+				pendingSprint = sprintCandidate;
 				mc.gameMode.attack(player, target);
 				player.swing(InteractionHand.MAIN_HAND);
 				return;
@@ -214,6 +258,15 @@ public final class PilotController {
 			lastGroundY = player.getY();
 		}
 		retarget(mc, player);
+		statTick++;
+
+		// getting hit breaks the combo chain, mirroring training
+		if (player.hurtTime > prevSelfHurt) {
+			statTaken++;
+			takenSinceLastHit = true;
+			statChain = 0;
+		}
+		prevSelfHurt = player.hurtTime;
 
 		// last-hit reach: the server confirms a hit as a hurtTime jump, which
 		// arrives a few ticks after our attack on a remote server
@@ -221,6 +274,24 @@ public final class PilotController {
 			if (target != null && target.hurtTime > prevTargetHurt) {
 				lastReach = pendingReach;
 				pendingReachTicks = 0;
+				statHits++;
+				if (pendingSprint) {
+					statSprintHits++;
+				}
+				if (pendingCrit) {
+					statCrits++;
+				}
+				if (statTick - lastHitStatTick <= STAT_CHAIN_WINDOW && !takenSinceLastHit) {
+					statChain++;
+				} else {
+					statChain = 1;
+				}
+				if (statChain == 2) {
+					statCombos++;
+				}
+				statBestChain = Math.max(statBestChain, statChain);
+				lastHitStatTick = statTick;
+				takenSinceLastHit = false;
 			} else {
 				pendingReachTicks--;
 			}

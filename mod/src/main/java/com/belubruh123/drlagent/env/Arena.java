@@ -70,9 +70,12 @@ public final class Arena {
 	// vs airborne), so both skills survive. The window is sized so a
 	// sprint-chase after knockback (~6 blocks + 12.5-tick cooldown) still chains.
 	private static final int CHAIN_WINDOW = 40;
-	private static final float CHAIN_BONUS = 0.2f;
-	private static final float CRIT_BONUS_SCALE = 0.5f;
+	private static final float CHAIN_BONUS = 0.25f;
+	private static final float CRIT_BONUS_SCALE = 0.35f;
 	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
+	// Every takeoff costs a little: jumping is only worth it when it converts
+	// to a crit (net +0.3), so the policy stops hopping around aimlessly.
+	private static final float JUMP_COST = 0.05f;
 
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
@@ -111,6 +114,8 @@ public final class Arena {
 	private double bandDistBefore;
 	private boolean hitWasCrit;
 	private boolean hitWasSprint;
+	private boolean jumpHeld;
+	private boolean preTickOnGround;
 	private int comboChain;
 	private int lastHitTick;
 	private boolean takenSinceLastHit;
@@ -257,6 +262,8 @@ public final class Arena {
 		// bonus knockback but is barred from critting (Player.attack)
 		agent.setSprinting(forward && sprint);
 		agent.setJumping(jump);
+		jumpHeld = jump;
+		preTickOnGround = agent.onGround();
 
 		if (attack) {
 			// 26.1: swing() itself resets the attack ticker (even air swings),
@@ -500,6 +507,10 @@ public final class Arena {
 		if (freshHitTaken) {
 			reward -= HIT_TAKEN_PENALTY;
 			takenSinceLastHit = true;
+		}
+		// took off this tick (was grounded, jump held, now airborne)
+		if (jumpHeld && preTickOnGround && !agent.onGround()) {
+			reward -= JUMP_COST;
 		}
 
 		int info = 0;

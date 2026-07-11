@@ -62,6 +62,13 @@ final class PilotCommand {
 		src.sendFeedback(Component.literal("[pilot] " + (pilot.isEngaged()
 				? "ENGAGED — target: " + (target != null ? target : "searching…")
 				: "off") + " | server 127.0.0.1:" + pilot.getPort()));
+		if (pilot.isEngaged()) {
+			PilotController.Stats s = pilot.stats();
+			src.sendFeedback(Component.literal("[pilot] hits " + s.hits()
+					+ " (sprint " + s.sprintHits() + ", crit " + s.crits()
+					+ ") | combo x" + s.chain() + " best x" + s.bestChain()
+					+ " combos " + s.combos() + " | taken " + s.taken()));
+		}
 		return 1;
 	}
 

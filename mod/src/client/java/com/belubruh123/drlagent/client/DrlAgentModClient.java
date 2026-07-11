@@ -13,6 +13,7 @@ public class DrlAgentModClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		PilotCommand.register();
+		PilotHud.register();
 		KeyMapping toggle = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 				"key.drlagent.pilot_toggle", InputConstants.Type.KEYSYM,
 				InputConstants.KEY_G, KeyMapping.Category.MISC));

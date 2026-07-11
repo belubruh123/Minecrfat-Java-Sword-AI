@@ -58,8 +58,10 @@ training needed to use the pilot.
    disables that head).
 4. In game, press **G** (rebindable: "Toggle DRL Pilot") or use the commands:
    `/pilot on`, `/pilot off`, `/pilot status`, `/pilot port <n>`. The pilot
-   locks on to the nearest player and fights; toggle again to take back
-   control. It auto-disengages if the inference server stops answering.
+   locks on to the nearest player and fights, with a live top-left stats
+   panel (hits, sprint hits, crits, combo chain, hits taken); toggle again
+   to take back control. It auto-disengages if the inference server stops
+   answering.
 
 Use it only where it's allowed — on your own server or with consenting
 opponents. On public servers this is indistinguishable from botting and

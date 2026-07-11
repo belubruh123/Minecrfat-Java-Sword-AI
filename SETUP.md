@@ -72,8 +72,11 @@ Leave that running, start Minecraft, join a world/server, and:
 | `/pilot port 12345` | use a different pilot.py port (`pilot.py --port 12345`) |
 
 While engaged the pilot locks onto the nearest player (within 48 blocks),
-aims, times swings, and fights. It releases instantly when you toggle it off,
-and auto-releases if it leaves the world or `pilot.py` stops answering — you
+aims, times swings, and fights. A stats panel in the top-left shows the
+fight live: hits landed (split into sprint hits and crits), the current
+combo chain with best/total combos, and hits taken — counters reset each
+time you engage. The pilot releases instantly when you toggle it off, and
+auto-releases if it leaves the world or `pilot.py` stops answering — you
 are never locked out of your own character.
 
 `pilot.py` options: `--aim/--swing/--move` point at other checkpoints
