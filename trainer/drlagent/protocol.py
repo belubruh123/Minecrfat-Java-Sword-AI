@@ -26,7 +26,8 @@ class Hello:
     scalars: list[str]
 
 
-N_TELEMETRY = 7  # agent x, z, y, yaw, opponent x, z, y (replay/debug only)
+N_TELEMETRY = 12  # ax, az, ay, ayaw, ox, oz, oy, apitch, oyaw,
+                 # agent_swung, opp_swung, opp_hurt (replay/debug only)
 
 
 @dataclass

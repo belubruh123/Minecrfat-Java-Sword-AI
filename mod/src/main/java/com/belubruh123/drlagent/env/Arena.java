@@ -131,6 +131,8 @@ public final class Arena {
 	private boolean oppPerfectEpisode;
 	private int oppReactTicks;
 	private boolean oppWasDisrupted;
+	/** Opponent swung its sword this tick (telemetry for the 3D replay). */
+	private boolean oppSwung;
 
 	public Arena(int index, ServerLevel level, Random rng) {
 		this.index = index;
@@ -270,6 +272,7 @@ public final class Arena {
 		hitLanded = false;
 		hitWasCrit = false;
 		hitWasSprint = false;
+		oppSwung = false;
 
 		agent.setOldPosAndRot();
 		opponent.setOldPosAndRot();
@@ -392,6 +395,7 @@ public final class Arena {
 			// early swings land into it and do nothing (wasted timing)
 			opponent.swing(InteractionHand.MAIN_HAND);
 			opponent.attack(agent);
+			oppSwung = true;
 			oppReactTicks = sampleReaction();
 		}
 	}
@@ -410,6 +414,7 @@ public final class Arena {
 				&& agent.invulnerableTime <= 10) {
 			opponent.swing(InteractionHand.MAIN_HAND);
 			opponent.attack(agent);
+			oppSwung = true;
 		}
 	}
 
@@ -673,10 +678,11 @@ public final class Arena {
 		buf.putFloat(lastReach);
 	}
 
-	/** Debug/replay telemetry (PROTOCOL.md obs frame, 7 f32): both fighters'
-	 * positions relative to the arena center/floor plus the agent's yaw.
-	 * Never fed to the policy — only recorded for the dashboard's top-down
-	 * view, so the human-fair observation contract is untouched. */
+	/** Debug/replay telemetry (PROTOCOL.md obs frame, 12 f32): both fighters'
+	 * poses and swing/hurt states. Never fed to the policy — only recorded
+	 * for the dashboard's top-down and reconstructed-3D replay views, so the
+	 * human-fair observation contract is untouched. First 7 floats predate
+	 * the 3D view; keep their order. */
 	public void writeTelemetry(ByteBuffer buf) {
 		buf.putFloat((float) (agent.getX() - centerX));
 		buf.putFloat((float) (agent.getZ() - centerZ));
@@ -685,6 +691,11 @@ public final class Arena {
 		buf.putFloat((float) (opponent.getX() - centerX));
 		buf.putFloat((float) (opponent.getZ() - centerZ));
 		buf.putFloat((float) (opponent.getY() - floorY));
+		buf.putFloat(agent.getXRot());
+		buf.putFloat(opponent.getYRot());
+		buf.putFloat(attackPressed ? 1 : 0);
+		buf.putFloat(oppSwung ? 1 : 0);
+		buf.putFloat(opponent.hurtTime / 10.0f);
 	}
 
 	private boolean isTargetVisible() {

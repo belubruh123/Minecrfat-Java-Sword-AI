@@ -77,7 +77,7 @@ Header: `u32 tick_counter`, then repeated `arenas` times:
 | reward | f32 | reward earned by the tick just simulated |
 | done  | u8  | 1 = episode ended this tick (obs is the first of the new episode) |
 | info  | u8  | bit 0: crosshair on target; bit 1: hit landed; bit 2: hit taken; bit 3: episode has an elevated (non-horizontal) spawn; bit 4: whiff (attack pressed, no clean hit); bit 5: landed hit was a critical; bit 6: landed hit had the sprint-knockback bonus |
-| telemetry | f32 × 7 | replay/debug only, never policy input: agent x, z, y (relative to arena center/floor), agent yaw (deg), opponent x, z, y |
+| telemetry | f32 × 12 | replay/debug only, never policy input: agent x, z, y (relative to arena center/floor), agent yaw (deg), opponent x, z, y, agent pitch (deg), opponent yaw (deg), agent swung (0/1), opponent swung (0/1), opponent hurtTime/10 |
 
 Mask size for 426×240 = 12780 bytes.
 

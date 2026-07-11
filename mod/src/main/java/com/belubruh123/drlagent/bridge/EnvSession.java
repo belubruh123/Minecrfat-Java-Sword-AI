@@ -26,7 +26,7 @@ public final class EnvSession {
 	 * sprint u8, flags u8. */
 	private static final int ACTION_BYTES = 4 + 4 + 1 + 1 + 1 + 1 + 1 + 1;
 	/** Telemetry floats appended per arena to each obs frame (PROTOCOL.md). */
-	private static final int TELEMETRY_FLOATS = 7;
+	private static final int TELEMETRY_FLOATS = 12;
 
 	private final BridgeServer bridge;
 	private final ArenaManager arenas = new ArenaManager();
