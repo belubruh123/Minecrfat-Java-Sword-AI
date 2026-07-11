@@ -7,7 +7,7 @@ total_steps: 3_000_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../runs/stage2_vertical_v2/best.pt
-swing_checkpoint: ../runs/stage3_swing/final.pt
+swing_checkpoint: ../runs/stage3_swing/latest.pt  # stopped at 512k plateau; no final.pt
 
 curriculum:
   horizontal_prob: 1.0
