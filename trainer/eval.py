@@ -2,6 +2,7 @@
 
 Usage: python eval.py runs/stage1_aim/latest.pt --episodes 100 [--curriculum configs/stage1_aim.yaml]
 Swing checkpoints need the frozen aim net: --aim runs/stage2_vertical_v2/best.pt
+Move checkpoints need both: --aim ... --swing runs/stage3_swing/latest.pt
 Stop the trainer first — the bridge holds one session at a time.
 """
 
@@ -12,7 +13,7 @@ import numpy as np
 import torch
 import yaml
 
-from drlagent.models import AimPolicy, SwingPolicy
+from drlagent.models import AimPolicy, MovePolicy, SwingPolicy
 from drlagent.vec_env import MinecraftVecEnv
 
 
@@ -23,7 +24,9 @@ def main() -> None:
     ap.add_argument("--curriculum", default=None,
                     help="yaml config supplying the eval curriculum")
     ap.add_argument("--aim", default=None,
-                    help="aim checkpoint that steers during a swing eval")
+                    help="aim checkpoint that steers during a swing/move eval")
+    ap.add_argument("--swing", default=None,
+                    help="swing checkpoint that attacks during a move eval")
     ap.add_argument("--stochastic", action="store_true",
                     help="sample the policy instead of argmax (aim stays deterministic)")
     ap.add_argument("--seed", type=int, default=12345)
@@ -47,14 +50,24 @@ def main() -> None:
         f"env obs {(env.h, env.w, env.n_scalars)} != checkpoint {(h, w, n_scalars)}"
 
     aim = None
-    if ckpt_stage == "swing":
+    swing = None
+    if ckpt_stage in ("swing", "move"):
         if not args.aim:
-            raise SystemExit("swing checkpoint: pass --aim <aim checkpoint>")
-        policy = SwingPolicy(stack, h, w, n_scalars)
+            raise SystemExit(f"{ckpt_stage} checkpoint: pass --aim <aim checkpoint>")
         aim = AimPolicy(stack, h, w, n_scalars)
         aim.load_state_dict(torch.load(args.aim, map_location="cpu",
                                        weights_only=False)["policy"])
         aim.eval()
+    if ckpt_stage == "swing":
+        policy = SwingPolicy(stack, h, w, n_scalars)
+    elif ckpt_stage == "move":
+        if not args.swing:
+            raise SystemExit("move checkpoint: pass --swing <swing checkpoint>")
+        swing = SwingPolicy(stack, h, w, n_scalars)
+        swing.load_state_dict(torch.load(args.swing, map_location="cpu",
+                                         weights_only=False)["policy"])
+        swing.eval()
+        policy = MovePolicy(stack, h, w, n_scalars)
     else:
         policy = AimPolicy(stack, h, w, n_scalars)
     policy.load_state_dict(ckpt["policy"])
@@ -68,7 +81,15 @@ def main() -> None:
             ts = torch.from_numpy(scalars)
             action, _, _, _ = policy.act(tm, ts,
                                          deterministic=not args.stochastic)
-            if aim is not None:
+            if ckpt_stage == "move":
+                aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                # the swing head is sampled: that is its trained behavior
+                swing_a, _, _, _ = swing.act(tm, ts)
+                env.step(aim_a[:, 0], aim_a[:, 1],
+                         attack=swing_a.numpy().astype(np.uint8),
+                         forward=action.numpy().astype(np.uint8))
+            elif aim is not None:
                 aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
                 aim_a = aim_a.numpy()
                 env.step(aim_a[:, 0], aim_a[:, 1],
@@ -82,12 +103,16 @@ def main() -> None:
     rets = [s["return"] for s in stats]
     print(f"checkpoint: {args.checkpoint} (trained {ckpt['step']} steps)")
     print(f"episodes:   {len(stats)}")
-    if ckpt_stage == "swing":
+    if ckpt_stage in ("swing", "move"):
         hits = [s["hits"] for s in stats]
         whiffs = [s["whiffs"] for s in stats]
         swings = sum(hits) + sum(whiffs)
         print(f"hits/ep:    mean {np.mean(hits):.1f}   whiffs/ep: mean {np.mean(whiffs):.1f}")
         print(f"hit rate:   {sum(hits) / max(swings, 1):.1%} of {swings} swings")
+        if ckpt_stage == "move":
+            taken = [s["hits_taken"] for s in stats]
+            print(f"hits taken: mean {np.mean(taken):.1f}/ep "
+                  f"(damage ratio {sum(hits) / max(sum(taken), 1):.2f})")
     else:
         succ = [s["success"] for s in stats]
         lens = [s["length"] for s in stats if s["success"]]
