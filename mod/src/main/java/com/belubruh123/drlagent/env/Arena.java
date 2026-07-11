@@ -379,10 +379,6 @@ public final class Arena {
 		double dist = opponent.distanceTo(agent);
 		opponent.zza = dist > 3.0 ? 0.7f : (dist < 2.0 ? -0.5f : 0.0f);
 
-		if (oppReactTicks > 0) {
-			oppReactTicks--;
-			return;
-		}
 		if (opponent.getAttackStrengthScale(0.5f) < 0.9f) {
 			return;
 		}
@@ -390,14 +386,23 @@ public final class Arena {
 		Vec3 dir = agent.getEyePosition().subtract(eye).normalize();
 		Vec3 end = eye.add(dir.scale(opponent.entityInteractionRange()));
 		Optional<Vec3> hit = agent.getBoundingBox().clip(eye, end);
-		if (hit.isPresent() && !blockedByBlocks(eye, hit.get())) {
-			// no invulnerableTime check: a human can't see the window, so
-			// early swings land into it and do nothing (wasted timing)
-			opponent.swing(InteractionHand.MAIN_HAND);
-			opponent.attack(agent);
-			oppSwung = true;
-			oppReactTicks = sampleReaction();
+		if (hit.isEmpty() || blockedByBlocks(eye, hit.get())) {
+			return;
 		}
+		// the reaction delay counts down only while the opportunity (charged
+		// + in reach) actually exists — a human reacts to the opening, they
+		// don't pre-compute it during the cooldown. Ducking out of reach
+		// before the delay elapses wastes the opening entirely.
+		if (oppReactTicks > 0) {
+			oppReactTicks--;
+			return;
+		}
+		// no invulnerableTime check: a human can't see the window, so
+		// early swings land into it and do nothing (wasted timing)
+		opponent.swing(InteractionHand.MAIN_HAND);
+		opponent.attack(agent);
+		oppSwung = true;
+		oppReactTicks = sampleReaction();
 	}
 
 	/** Fighting opponent: swings at the agent with perfect discipline —
