@@ -89,3 +89,8 @@ class SwingPolicy(nn.Module):
         entropy = dist.entropy()
         value = self.critic(feat).squeeze(-1)
         return action, logprob, entropy, value
+
+
+class MovePolicy(SwingPolicy):
+    """Categorical policy over {0: W released, 1: W held} — same architecture,
+    separate class so checkpoints are self-describing."""

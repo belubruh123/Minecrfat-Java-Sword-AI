@@ -11,16 +11,27 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from .models import AimPolicy, SwingPolicy
+from .models import AimPolicy, MovePolicy, SwingPolicy
 from .vec_env import MinecraftVecEnv
+
+
+def _load_frozen(cls, path: str, *shape):
+    net = cls(*shape)
+    net.load_state_dict(torch.load(path, map_location="cpu",
+                                   weights_only=False)["policy"])
+    net.eval()
+    net.requires_grad_(False)
+    return net
 
 
 class PPOTrainer:
     """Trains one policy per stage. "aim" trains the Gaussian aim net; "swing"
-    trains a Categorical attack net while a frozen aim checkpoint steers."""
+    trains a Categorical attack net while a frozen aim checkpoint steers;
+    "move" trains the W key with frozen aim + swing acting."""
 
     def __init__(self, env: MinecraftVecEnv, run_dir: Path, cfg: dict,
-                 stage: str = "aim", aim_ckpt: str | None = None):
+                 stage: str = "aim", aim_ckpt: str | None = None,
+                 swing_ckpt: str | None = None):
         self.env = env
         self.cfg = cfg
         self.run_dir = run_dir
@@ -29,19 +40,24 @@ class PPOTrainer:
         self.device = torch.device("cpu")
         torch.set_num_threads(cfg.get("torch_threads", 3))
 
+        shape = (env.stack, env.h, env.w, env.n_scalars)
         self.aim = None
-        if stage == "swing":
+        self.swing = None
+        if stage in ("swing", "move"):
             if not aim_ckpt:
-                raise ValueError("swing stage needs aim_checkpoint in the config")
-            self.aim = AimPolicy(env.stack, env.h, env.w, env.n_scalars)
-            self.aim.load_state_dict(torch.load(aim_ckpt, map_location="cpu",
-                                                weights_only=False)["policy"])
-            self.aim.eval()
-            self.aim.requires_grad_(False)
-            self.policy = SwingPolicy(env.stack, env.h, env.w, env.n_scalars)
+                raise ValueError(f"{stage} stage needs aim_checkpoint in the config")
+            self.aim = _load_frozen(AimPolicy, aim_ckpt, *shape)
+        if stage == "swing":
+            self.policy = SwingPolicy(*shape)
+            self.act_dim = 1
+        elif stage == "move":
+            if not swing_ckpt:
+                raise ValueError("move stage needs swing_checkpoint in the config")
+            self.swing = _load_frozen(SwingPolicy, swing_ckpt, *shape)
+            self.policy = MovePolicy(*shape)
             self.act_dim = 1
         else:
-            self.policy = AimPolicy(env.stack, env.h, env.w, env.n_scalars)
+            self.policy = AimPolicy(*shape)
             self.act_dim = 2
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=cfg["lr"], eps=1e-5)
@@ -83,6 +99,17 @@ class PPOTrainer:
                 a = action.numpy()
                 rewards, dones, _ = env.step(aim_a[:, 0], aim_a[:, 1],
                                              attack=a.astype(np.uint8))
+                self.b_actions[t] = a[:, None]
+            elif self.stage == "move":
+                aim_a, _, _, _ = self.aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                # the swing head is sampled: that is its trained behavior
+                swing_a, _, _, _ = self.swing.act(tm, ts)
+                a = action.numpy()
+                rewards, dones, _ = env.step(
+                    aim_a[:, 0], aim_a[:, 1],
+                    attack=swing_a.numpy().astype(np.uint8),
+                    forward=a.astype(np.uint8))
                 self.b_actions[t] = a[:, None]
             else:
                 a = action.numpy()
@@ -129,7 +156,7 @@ class PPOTrainer:
         flat_masks = self.b_masks.reshape(batch, *self.b_masks.shape[2:])
         flat_scalars = self.b_scalars.reshape(batch, -1)
         flat_actions = torch.from_numpy(self.b_actions.reshape(batch, self.act_dim))
-        if self.stage == "swing":
+        if self.stage in ("swing", "move"):
             flat_actions = flat_actions.long().squeeze(-1)
         flat_logprobs = torch.from_numpy(self.b_logprobs.reshape(batch))
         flat_adv = torch.from_numpy(advantages.reshape(batch))
@@ -202,9 +229,12 @@ class PPOTrainer:
             summary["ep_len"] = float(np.mean([s["length"] for s in stats]))
             summary["success"] = float(np.mean([s["success"] for s in stats]))
             summary["episodes"] = len(stats)
-            if self.stage == "swing":
+            if self.stage in ("swing", "move"):
                 summary["ep_hits"] = float(np.mean([s["hits"] for s in stats]))
                 summary["ep_whiffs"] = float(np.mean([s["whiffs"] for s in stats]))
+            if self.stage == "move":
+                summary["ep_hits_taken"] = float(
+                    np.mean([s["hits_taken"] for s in stats]))
         for k, v in summary.items():
             if k not in ("step", "episodes"):
                 self.writer.add_scalar(k, v, self.global_step)

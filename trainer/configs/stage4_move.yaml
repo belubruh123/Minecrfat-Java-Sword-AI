@@ -1,0 +1,34 @@
+# Stage 4: W-key movement — spacing against a fighting opponent. Frozen aim
+# steers, frozen swing (sampled) attacks; PPO trains only forward/held.
+# Run from trainer/: python train.py configs/stage4_move.yaml --run stage4_move
+stage: move
+seed: 4
+total_steps: 3_000_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../runs/stage2_vertical_v2/best.pt
+swing_checkpoint: ../runs/stage3_swing/final.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0        # spawn far enough that approaching must be learned
+  yaw_range: 90.0
+  episode_ticks: 400
+  lock_ticks: 3         # unused by the move stage
+  opponent: fight
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.002
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

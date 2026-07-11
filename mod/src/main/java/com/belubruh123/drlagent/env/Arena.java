@@ -49,6 +49,15 @@ public final class Arena {
 	// (out of reach, occluded, or inside the invulnerability window) is a whiff.
 	private static final float WHIFF_PENALTY = 0.3f;
 
+	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
+	// per-tick bonus for holding it plus potential shaping toward it, hits
+	// taken hurt. Swing outcomes pass through — positioning enables them.
+	private static final double BAND_MIN = 2.0;
+	private static final double BAND_MAX = 2.9;
+	private static final float IN_BAND_REWARD = 0.02f;
+	private static final float BAND_SHAPING = 0.2f;
+	private static final float HIT_TAKEN_PENALTY = 0.5f;
+
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
 	public static final int INFO_HIT_TAKEN = 4;
@@ -80,6 +89,8 @@ public final class Arena {
 	private float opponentHealthBefore;
 	private int strafeDir;
 	private int strafeFlipTicks;
+	private int agentHurtTimeBefore;
+	private double bandDistBefore;
 
 	public Arena(int index, ServerLevel level, Random rng) {
 		this.index = index;
@@ -168,6 +179,14 @@ public final class Arena {
 
 		opponentHealthBefore = opponent.getHealth();
 		prevAngErr = currentAngleError();
+		agentHurtTimeBefore = 0;
+		bandDistBefore = bandDistance();
+	}
+
+	/** How far the opponent sits outside the ideal spacing band (0 inside it). */
+	private double bandDistance() {
+		double d = opponent.distanceTo(agent);
+		return Math.min(Math.max(0, Math.max(BAND_MIN - d, d - BAND_MAX)), 5.0);
 	}
 
 	private void place(FakePlayer p, double x, double y, double z, float yaw, float pitch) {
@@ -231,10 +250,30 @@ public final class Arena {
 
 		if ("strafe".equals(cfg.opponent)) {
 			tickStrafeOpponent();
+		} else if ("fight".equals(cfg.opponent)) {
+			tickStrafeOpponent();
+			tickOpponentAttack();
 		}
 		// No manual agent/opponent tick: the server level ticks entities in
 		// force-loaded chunks itself — adding one here double-ticks physics
 		// and the attack-cooldown ticker.
+	}
+
+	/** Fighting opponent: swings at the agent with perfect discipline —
+	 * full charge, in reach, outside the agent's invulnerability window. */
+	private void tickOpponentAttack() {
+		if (opponent.getAttackStrengthScale(0.5f) < 0.9f) {
+			return;
+		}
+		Vec3 eye = opponent.getEyePosition();
+		Vec3 dir = agent.getEyePosition().subtract(eye).normalize();
+		Vec3 end = eye.add(dir.scale(opponent.entityInteractionRange()));
+		Optional<Vec3> hit = agent.getBoundingBox().clip(eye, end);
+		if (hit.isPresent() && !blockedByBlocks(eye, hit.get())
+				&& agent.invulnerableTime <= 10) {
+			opponent.swing(InteractionHand.MAIN_HAND);
+			opponent.attack(agent);
+		}
 	}
 
 	/** Circle-strafe around the agent, flipping direction at random intervals
@@ -267,6 +306,9 @@ public final class Arena {
 
 		if ("swing".equals(cfg.stage)) {
 			return stepSwing();
+		}
+		if ("move".equals(cfg.stage)) {
+			return stepMove();
 		}
 
 		boolean onTarget = isCrosshairOnTarget();
@@ -333,6 +375,46 @@ public final class Arena {
 		opponent.getFoodData().setFoodLevel(20);
 
 		boolean fellOff = opponent.getY() < floorY - 2;
+		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset;
+		if (done) {
+			reset();
+		}
+		return new StepResult(reward, done, info);
+	}
+
+	/** Move stage: frozen aim + swing act, the W key learns spacing. Swing
+	 * outcomes pass through, fresh hits taken are punished, and the spacing
+	 * band pays a small hold bonus plus potential shaping toward it. */
+	private StepResult stepMove() {
+		float reward = 0;
+		if (attackPressed) {
+			reward += hitLanded ? lastAttackCharge : -WHIFF_PENALTY;
+		}
+		boolean freshHitTaken = agent.hurtTime > agentHurtTimeBefore;
+		agentHurtTimeBefore = agent.hurtTime;
+		if (freshHitTaken) {
+			reward -= HIT_TAKEN_PENALTY;
+		}
+		double bandDist = bandDistance();
+		reward += (float) (BAND_SHAPING * (bandDistBefore - bandDist));
+		if (bandDist == 0) {
+			reward += IN_BAND_REWARD;
+		}
+		bandDistBefore = bandDist;
+
+		int info = 0;
+		if (isCrosshairOnTarget()) info |= INFO_ON_TARGET;
+		if (hitLanded) info |= INFO_HIT_LANDED;
+		else if (attackPressed) info |= INFO_WHIFF;
+		if (elevatedEpisode) info |= INFO_ELEVATED;
+		if (freshHitTaken) info |= INFO_HIT_TAKEN;
+
+		opponent.setHealth(opponent.getMaxHealth());
+		opponent.getFoodData().setFoodLevel(20);
+		agent.setHealth(agent.getMaxHealth());
+		agent.getFoodData().setFoodLevel(20);
+
+		boolean fellOff = opponent.getY() < floorY - 2 || agent.getY() < floorY - 2;
 		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset;
 		if (done) {
 			reset();

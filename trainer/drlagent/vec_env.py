@@ -48,6 +48,7 @@ class MinecraftVecEnv:
         self.episode_len = np.zeros(self.n, np.int64)
         self.episode_hits = np.zeros(self.n, np.int64)
         self.episode_whiffs = np.zeros(self.n, np.int64)
+        self.episode_hits_taken = np.zeros(self.n, np.int64)
         self.finished: list[dict] = []  # stats of episodes done since last drain
 
         self.record_arena = record_arena
@@ -107,6 +108,7 @@ class MinecraftVecEnv:
         self.episode_len += 1
         self.episode_hits += (obs.infos & INFO_HIT_LANDED) > 0
         self.episode_whiffs += (obs.infos & INFO_WHIFF) > 0
+        self.episode_hits_taken += (obs.infos & INFO_HIT_TAKEN) > 0
         for i in np.nonzero(dones)[0]:
             self.finished.append({
                 "arena": int(i),
@@ -116,11 +118,13 @@ class MinecraftVecEnv:
                 "elevated": bool(obs.infos[i] & INFO_ELEVATED),
                 "hits": int(self.episode_hits[i]),
                 "whiffs": int(self.episode_whiffs[i]),
+                "hits_taken": int(self.episode_hits_taken[i]),
             })
             self.episode_return[i] = 0.0
             self.episode_len[i] = 0
             self.episode_hits[i] = 0
             self.episode_whiffs[i] = 0
+            self.episode_hits_taken[i] = 0
 
         # done obs is the first frame of the new episode: restart its stack
         self.frames = np.roll(self.frames, -1, axis=1)
