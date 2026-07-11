@@ -87,7 +87,7 @@ def episode(run: str, name: str):
     if not f.exists():
         raise HTTPException(404, "no such episode")
     z = np.load(f)
-    return JSONResponse({
+    out = {
         "shape": z["shape"].tolist(),
         "fps": 20,
         "frames": [base64.b64encode(row.tobytes()).decode() for row in z["masks"]],
@@ -95,4 +95,7 @@ def episode(run: str, name: str):
         "rewards": z["rewards"].tolist(),
         "infos": z["infos"].tolist(),
         "scalars": np.round(z["scalars"].astype(float), 3).tolist(),
-    })
+    }
+    if "telemetry" in z:  # older recordings predate the top-down view
+        out["telemetry"] = np.round(z["telemetry"].astype(float), 3).tolist()
+    return JSONResponse(out)

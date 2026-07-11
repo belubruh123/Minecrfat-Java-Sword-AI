@@ -37,7 +37,8 @@ def main() -> None:
     )
     trainer = PPOTrainer(env, run_dir, cfg["ppo"], stage=cfg["stage"],
                          aim_ckpt=cfg.get("aim_checkpoint"),
-                         swing_ckpt=cfg.get("swing_checkpoint"))
+                         swing_ckpt=cfg.get("swing_checkpoint"),
+                         init_ckpt=cfg.get("init_checkpoint"))
     if args.resume:
         trainer.load(args.resume)
         print(f"resumed from {args.resume} at step {trainer.global_step}")

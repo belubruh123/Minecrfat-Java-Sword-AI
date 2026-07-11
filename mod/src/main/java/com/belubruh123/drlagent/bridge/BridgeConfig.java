@@ -7,7 +7,7 @@ package com.belubruh123.drlagent.bridge;
  * safe to have installed during normal play.
  */
 public final class BridgeConfig {
-	public static final int PROTOCOL_VERSION = 2;
+	public static final int PROTOCOL_VERSION = 3;
 	public static final int OBS_WIDTH = 426;
 	public static final int OBS_HEIGHT = 240;
 	public static final String[] SCALARS = {

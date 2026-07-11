@@ -26,6 +26,9 @@ class Hello:
     scalars: list[str]
 
 
+N_TELEMETRY = 7  # agent x, z, y, yaw, opponent x, z, y (replay/debug only)
+
+
 @dataclass
 class ObsBatch:
     tick: int
@@ -34,6 +37,7 @@ class ObsBatch:
     rewards: np.ndarray  # (arenas,) f32
     dones: np.ndarray    # (arenas,) bool
     infos: np.ndarray    # (arenas,) uint8 bit flags
+    telemetry: np.ndarray  # (arenas, N_TELEMETRY) f32 — never fed to policies
 
 
 class BridgeConnection:
@@ -109,16 +113,21 @@ class BridgeConnection:
     # -- hot path -----------------------------------------------------------
 
     def send_actions(self, dyaw: np.ndarray, dpitch: np.ndarray,
-                     attack: np.ndarray, forward: np.ndarray,
+                     attack: np.ndarray, move: np.ndarray,
                      jump: np.ndarray, sprint: np.ndarray,
-                     reset: np.ndarray | None = None) -> None:
+                     reset: np.ndarray | None = None,
+                     strafe: np.ndarray | None = None) -> None:
+        """v3 actions. move: 0 none / 1 W / 2 S (old boolean forward still
+        works: True == 1 == W). strafe: 0 none / 1 A / 2 D."""
         n = self.hello.arenas
         if reset is None:
             reset = np.zeros(n, dtype=np.uint8)
+        if strafe is None:
+            strafe = np.zeros(n, dtype=np.uint8)
         payload = bytearray()
         for i in range(n):
-            payload += struct.pack(">ffBBBBB", float(dyaw[i]), float(dpitch[i]),
-                                   int(attack[i]), int(forward[i]),
+            payload += struct.pack(">ffBBBBBB", float(dyaw[i]), float(dpitch[i]),
+                                   int(attack[i]), int(move[i]), int(strafe[i]),
                                    int(jump[i]), int(sprint[i]), int(reset[i]))
         self._send_frame(TYPE_ACTIONS, bytes(payload))
 
@@ -127,13 +136,15 @@ class BridgeConnection:
         if msg_type != TYPE_OBS:
             raise ProtocolError(f"expected obs frame, got type {msg_type}")
         h, w, n = self.hello.height, self.hello.width, self.hello.arenas
-        per_arena = self._mask_bytes + 4 * self._n_scalars + 4 + 1 + 1
+        per_arena = (self._mask_bytes + 4 * self._n_scalars + 4 + 1 + 1
+                     + 4 * N_TELEMETRY)
         (tick,) = struct.unpack(">I", payload[:4])
         masks = np.empty((n, h, w), dtype=np.uint8)
         scalars = np.empty((n, self._n_scalars), dtype=np.float32)
         rewards = np.empty(n, dtype=np.float32)
         dones = np.empty(n, dtype=bool)
         infos = np.empty(n, dtype=np.uint8)
+        telemetry = np.empty((n, N_TELEMETRY), dtype=np.float32)
         off = 4
         for i in range(n):
             end = off + self._mask_bytes
@@ -147,9 +158,11 @@ class BridgeConnection:
             dones[i] = payload[off] != 0
             infos[i] = payload[off + 1]
             off += 2
+            telemetry[i] = np.frombuffer(payload, ">f4", N_TELEMETRY, off)
+            off += 4 * N_TELEMETRY
         if off != len(payload) or per_arena * n + 4 != len(payload):
             raise ProtocolError(f"obs frame size mismatch: read {off}, got {len(payload)}")
-        return ObsBatch(tick, masks, scalars, rewards, dones, infos)
+        return ObsBatch(tick, masks, scalars, rewards, dones, infos, telemetry)
 
     def close(self) -> None:
         self.sock.close()

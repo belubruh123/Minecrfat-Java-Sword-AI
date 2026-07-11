@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from .models import AimPolicy, ComboPolicy, MovePolicy, SwingPolicy
+from .models import AimPolicy, ComboPolicy, FighterPolicy, MovePolicy, SwingPolicy
 from .vec_env import MinecraftVecEnv
 
 
@@ -24,6 +24,22 @@ def _load_frozen(cls, path: str, *shape):
     return net
 
 
+def _warm_start_trunk(policy: nn.Module, path: str) -> list[str]:
+    """Copy every shape-matching parameter from a checkpoint (encoder,
+    scalar_fc, critic — everything except a differently-shaped actor head).
+    Returns the names that were skipped."""
+    src = torch.load(path, map_location="cpu", weights_only=False)["policy"]
+    dst = policy.state_dict()
+    skipped = []
+    for k, v in src.items():
+        if k in dst and dst[k].shape == v.shape:
+            dst[k] = v
+        else:
+            skipped.append(k)
+    policy.load_state_dict(dst)
+    return skipped
+
+
 class PPOTrainer:
     """Trains one policy per stage. "aim" trains the Gaussian aim net; "swing"
     trains a Categorical attack net while a frozen aim checkpoint steers;
@@ -31,7 +47,7 @@ class PPOTrainer:
 
     def __init__(self, env: MinecraftVecEnv, run_dir: Path, cfg: dict,
                  stage: str = "aim", aim_ckpt: str | None = None,
-                 swing_ckpt: str | None = None):
+                 swing_ckpt: str | None = None, init_ckpt: str | None = None):
         self.env = env
         self.cfg = cfg
         self.run_dir = run_dir
@@ -43,22 +59,27 @@ class PPOTrainer:
         shape = (env.stack, env.h, env.w, env.n_scalars)
         self.aim = None
         self.swing = None
-        if stage in ("swing", "move", "combo"):
+        if stage in ("swing", "move", "combo", "fighter"):
             if not aim_ckpt:
                 raise ValueError(f"{stage} stage needs aim_checkpoint in the config")
             self.aim = _load_frozen(AimPolicy, aim_ckpt, *shape)
         if stage == "swing":
             self.policy = SwingPolicy(*shape)
             self.act_dim = 1
-        elif stage in ("move", "combo"):
+        elif stage in ("move", "combo", "fighter"):
             if not swing_ckpt:
                 raise ValueError(f"{stage} stage needs swing_checkpoint in the config")
             self.swing = _load_frozen(SwingPolicy, swing_ckpt, *shape)
-            self.policy = MovePolicy(*shape) if stage == "move" else ComboPolicy(*shape)
+            self.policy = {"move": MovePolicy, "combo": ComboPolicy,
+                           "fighter": FighterPolicy}[stage](*shape)
             self.act_dim = 1
         else:
             self.policy = AimPolicy(*shape)
             self.act_dim = 2
+        if init_ckpt:
+            skipped = _warm_start_trunk(self.policy, init_ckpt)
+            print(f"warm-started trunk from {init_ckpt}"
+                  f" (skipped: {', '.join(skipped) or 'nothing'})")
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=cfg["lr"], eps=1e-5)
         self.writer = SummaryWriter(str(run_dir / "tb"))
@@ -123,6 +144,20 @@ class PPOTrainer:
                     jump=((a >> 1) & 1).astype(np.uint8),
                     sprint=((a >> 2) & 1).astype(np.uint8))
                 self.b_actions[t] = a[:, None]
+            elif self.stage == "fighter":
+                aim_a, _, _, _ = self.aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                swing_a, _, _, _ = self.swing.act(tm, ts)
+                a = action.numpy().astype(np.int64)
+                move, strafe, jump, sprint = FighterPolicy.decode(a)
+                rewards, dones, _ = env.step(
+                    aim_a[:, 0], aim_a[:, 1],
+                    attack=swing_a.numpy().astype(np.uint8),
+                    move=move.astype(np.uint8),
+                    strafe=strafe.astype(np.uint8),
+                    jump=jump.astype(np.uint8),
+                    sprint=sprint.astype(np.uint8))
+                self.b_actions[t] = a[:, None]
             else:
                 a = action.numpy()
                 rewards, dones, _ = env.step(a[:, 0], a[:, 1])
@@ -168,7 +203,7 @@ class PPOTrainer:
         flat_masks = self.b_masks.reshape(batch, *self.b_masks.shape[2:])
         flat_scalars = self.b_scalars.reshape(batch, -1)
         flat_actions = torch.from_numpy(self.b_actions.reshape(batch, self.act_dim))
-        if self.stage in ("swing", "move", "combo"):
+        if self.stage in ("swing", "move", "combo", "fighter"):
             flat_actions = flat_actions.long().squeeze(-1)
         flat_logprobs = torch.from_numpy(self.b_logprobs.reshape(batch))
         flat_adv = torch.from_numpy(advantages.reshape(batch))
@@ -241,13 +276,13 @@ class PPOTrainer:
             summary["ep_len"] = float(np.mean([s["length"] for s in stats]))
             summary["success"] = float(np.mean([s["success"] for s in stats]))
             summary["episodes"] = len(stats)
-            if self.stage in ("swing", "move", "combo"):
+            if self.stage in ("swing", "move", "combo", "fighter"):
                 summary["ep_hits"] = float(np.mean([s["hits"] for s in stats]))
                 summary["ep_whiffs"] = float(np.mean([s["whiffs"] for s in stats]))
-            if self.stage in ("move", "combo"):
+            if self.stage in ("move", "combo", "fighter"):
                 summary["ep_hits_taken"] = float(
                     np.mean([s["hits_taken"] for s in stats]))
-            if self.stage == "combo":
+            if self.stage in ("combo", "fighter"):
                 summary["ep_crits"] = float(np.mean([s["crits"] for s in stats]))
                 summary["ep_sprint_hits"] = float(
                     np.mean([s["sprint_hits"] for s in stats]))

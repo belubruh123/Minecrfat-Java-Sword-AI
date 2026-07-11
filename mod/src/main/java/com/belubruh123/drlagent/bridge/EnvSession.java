@@ -22,7 +22,11 @@ import java.util.List;
  */
 public final class EnvSession {
 	private static final float TRAINING_TICK_RATE = 10000.0f;
-	private static final int ACTION_BYTES = 4 + 4 + 1 + 1 + 1 + 1 + 1;
+	/** v3: dyaw f32, dpitch f32, attack u8, move u8, strafe u8, jump u8,
+	 * sprint u8, flags u8. */
+	private static final int ACTION_BYTES = 4 + 4 + 1 + 1 + 1 + 1 + 1 + 1;
+	/** Telemetry floats appended per arena to each obs frame (PROTOCOL.md). */
+	private static final int TELEMETRY_FLOATS = 7;
 
 	private final BridgeServer bridge;
 	private final ArenaManager arenas = new ArenaManager();
@@ -85,6 +89,7 @@ public final class EnvSession {
 			buf.putFloat(r == null ? 0 : r.reward());
 			buf.put((byte) (r != null && r.done() ? 1 : 0));
 			buf.put((byte) (r == null ? 0 : r.info()));
+			list.get(i).writeTelemetry(buf);
 			results[i] = null;
 		}
 		try {
@@ -139,11 +144,12 @@ public final class EnvSession {
 			float dyaw = buf.getFloat();
 			float dpitch = buf.getFloat();
 			boolean attack = buf.get() != 0;
-			boolean forward = buf.get() != 0;
+			int move = buf.get() & 0xFF;
+			int strafe = buf.get() & 0xFF;
 			boolean jump = buf.get() != 0;
 			boolean sprint = buf.get() != 0;
 			boolean reset = (buf.get() & 1) != 0;
-			list.get(i).applyAction(dyaw, dpitch, attack, forward, jump, sprint, reset);
+			list.get(i).applyAction(dyaw, dpitch, attack, move, strafe, jump, sprint, reset);
 		}
 	}
 
@@ -157,7 +163,8 @@ public final class EnvSession {
 
 	private static int obsFrameSize(int arenaCount) {
 		int maskBytes = (BridgeConfig.OBS_WIDTH * BridgeConfig.OBS_HEIGHT + 7) / 8;
-		return 4 + arenaCount * (maskBytes + 4 * BridgeConfig.SCALARS.length + 4 + 1 + 1);
+		return 4 + arenaCount * (maskBytes + 4 * BridgeConfig.SCALARS.length + 4 + 1 + 1
+				+ 4 * TELEMETRY_FLOATS);
 	}
 
 	public boolean isPrimed() {

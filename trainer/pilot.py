@@ -22,7 +22,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from drlagent.models import AimPolicy, ComboPolicy, MovePolicy, SwingPolicy
+from drlagent.models import (AimPolicy, ComboPolicy, FighterPolicy, MovePolicy,
+                             SwingPolicy)
 from drlagent.vec_env import MAX_TURN_DEG, MinecraftVecEnv
 
 TYPE_JSON, TYPE_ACTION, TYPE_OBS = 0, 1, 2
@@ -39,7 +40,8 @@ def load_policy(cls, path: str | None, name: str):
         return None, None
     ckpt = torch.load(p, map_location="cpu", weights_only=False)
     if cls is None:  # movement head: the checkpoint's stage picks the class
-        cls = ComboPolicy if ckpt.get("stage") == "combo" else MovePolicy
+        cls = {"combo": ComboPolicy, "fighter": FighterPolicy}.get(
+            ckpt.get("stage"), MovePolicy)
     net = cls(*ckpt["obs_shape"])
     net.load_state_dict(ckpt["policy"])
     net.eval()
@@ -102,25 +104,27 @@ def serve_connection(conn, aim, swing, move, shape):
         ts = torch.from_numpy(scalars[None])
         with torch.no_grad():
             aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
-            attack = forward = jump = sprint = 0
+            attack = mv = strafe = jump = sprint = 0
             if swing is not None:
                 attack = int(swing.act(tm, ts)[0].item())
             if move is not None:
                 a = int(move.act(tm, ts)[0].item())
-                if isinstance(move, ComboPolicy):
-                    forward, jump, sprint = a & 1, (a >> 1) & 1, (a >> 2) & 1
+                if isinstance(move, FighterPolicy):
+                    mv, strafe, jump, sprint = (int(x) for x in FighterPolicy.decode(a))
+                elif isinstance(move, ComboPolicy):
+                    mv, jump, sprint = a & 1, (a >> 1) & 1, (a >> 2) & 1
                 else:  # move stage trained with W implying sprint
-                    forward, sprint = a, a
+                    mv, sprint = a, a
         dyaw = float(np.clip(aim_a[0, 0].item(), -1, 1)) * MAX_TURN_DEG
         dpitch = float(np.clip(aim_a[0, 1].item(), -1, 1)) * MAX_TURN_DEG
 
-        send_frame(f, TYPE_ACTION, struct.pack(">ffBBBB", dyaw, dpitch,
-                                               attack, forward, jump, sprint))
+        send_frame(f, TYPE_ACTION, struct.pack(">ffBBBBB", dyaw, dpitch, attack,
+                                               mv, strafe, jump, sprint))
 
         infer_ms += (time.perf_counter() - t0) * 1000
         n_ticks += 1
         n_attacks += attack
-        n_forward += forward
+        n_forward += int(mv == 1)
         if n_ticks % 200 == 0:
             print(f"  {n_ticks} ticks | attack {n_attacks / 200:.0%} "
                   f"forward {n_forward / 200:.0%} | {infer_ms / 200:.1f} ms/tick")

@@ -104,3 +104,23 @@ class ComboPolicy(SwingPolicy):
     def __init__(self, stack: int, height: int, width: int, n_scalars: int):
         super().__init__(stack, height, width, n_scalars)
         self.actor = _ortho(nn.Linear(256 + 32, 8), std=0.01)
+
+
+class FighterPolicy(SwingPolicy):
+    """Categorical over the 36 full movement combos, mixed radix:
+    index = move + 3*strafe + 9*jump + 18*sprint, with move 0/1/2 =
+    none/W/S and strafe 0/1/2 = none/A/D. Supersedes ComboPolicy by adding
+    backward and strafing — the keys that make spacing and damage avoidance
+    possible. Trunk (encoder/scalar_fc/critic) is warm-startable from a
+    combo checkpoint; only this actor head differs in shape."""
+
+    N_ACTIONS = 36
+
+    def __init__(self, stack: int, height: int, width: int, n_scalars: int):
+        super().__init__(stack, height, width, n_scalars)
+        self.actor = _ortho(nn.Linear(256 + 32, self.N_ACTIONS), std=0.01)
+
+    @staticmethod
+    def decode(a):
+        """action index -> (move, strafe, jump, sprint) arrays."""
+        return a % 3, (a // 3) % 3, (a // 9) % 2, (a // 18) % 2

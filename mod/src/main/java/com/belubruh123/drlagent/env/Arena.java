@@ -119,6 +119,10 @@ public final class Arena {
 	private int comboChain;
 	private int lastHitTick;
 	private boolean takenSinceLastHit;
+	/** Humanized opponent state: true = this episode uses the perfect bot. */
+	private boolean oppPerfectEpisode;
+	private int oppReactTicks;
+	private boolean oppWasDisrupted;
 
 	public Arena(int index, ServerLevel level, Random rng) {
 		this.index = index;
@@ -212,6 +216,16 @@ public final class Arena {
 		prevAngErr = currentAngleError();
 		agentHurtTimeBefore = 0;
 		bandDistBefore = bandDistance();
+
+		oppPerfectEpisode = !"human".equals(cfg.opponent)
+				|| rng.nextDouble() < cfg.oppFightProb;
+		oppReactTicks = sampleReaction();
+		oppWasDisrupted = false;
+	}
+
+	private int sampleReaction() {
+		return cfg.oppReactionMin
+				+ rng.nextInt(Math.max(1, cfg.oppReactionMax - cfg.oppReactionMin + 1));
 	}
 
 	/** How far the opponent sits outside the ideal spacing band (0 inside it). */
@@ -239,8 +253,8 @@ public final class Arena {
 		p.resetFallDistance();
 	}
 
-	public void applyAction(float dyaw, float dpitch, boolean attack, boolean forward,
-			boolean jump, boolean sprint, boolean reset) {
+	public void applyAction(float dyaw, float dpitch, boolean attack, int move,
+			int strafe, boolean jump, boolean sprint, boolean reset) {
 		if (reset) {
 			forceReset = true;
 		}
@@ -256,11 +270,12 @@ public final class Arena {
 		agent.setYHeadRot(agent.getYRot());
 		agent.setXRot(Mth.clamp(agent.getXRot() + Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK), -90, 90));
 
-		agent.zza = forward ? 1.0f : 0.0f;
-		agent.xxa = 0;
+		// move: 0 none, 1 = W, 2 = S; strafe: 0 none, 1 = A (left), 2 = D (right)
+		agent.zza = move == 1 ? 1.0f : (move == 2 ? -1.0f : 0.0f);
+		agent.xxa = strafe == 1 ? 1.0f : (strafe == 2 ? -1.0f : 0.0f);
 		// vanilla can only sprint while moving forward; a sprinting attack gets
 		// bonus knockback but is barred from critting (Player.attack)
-		agent.setSprinting(forward && sprint);
+		agent.setSprinting(move == 1 && sprint);
 		agent.setJumping(jump);
 		jumpHeld = jump;
 		preTickOnGround = agent.onGround();
@@ -299,13 +314,78 @@ public final class Arena {
 
 		if ("strafe".equals(cfg.opponent)) {
 			tickStrafeOpponent();
-		} else if ("fight".equals(cfg.opponent)) {
+		} else if ("fight".equals(cfg.opponent)
+				|| ("human".equals(cfg.opponent) && oppPerfectEpisode)) {
 			tickStrafeOpponent();
 			tickOpponentAttack();
+		} else if ("human".equals(cfg.opponent)) {
+			tickHumanOpponent();
 		}
 		// No manual agent/opponent tick: the server level ticks entities in
 		// force-loaded chunks itself — adding one here double-ticks physics
 		// and the attack-cooldown ticker.
+	}
+
+	/** Opponent turn rate while humanized (degrees/tick); a mouse flick is
+	 * fast, so this mostly matters while recovering from hitstun. */
+	private static final float OPP_TURN_RATE = 20.0f;
+
+	/**
+	 * Humanized opponent: same movement instincts as the scripted bot, but
+	 * with the limitations that make real players beatable — a sampled
+	 * reaction delay before each attack, no awareness of the agent's
+	 * invulnerability window (early swings waste into it), and full
+	 * disruption while in hitstun or knocked airborne: no attacks, frozen
+	 * aim, no intentional movement, plus a fresh reaction delay on recovery.
+	 * This is what makes juggling, spacing and hit-selection pay off.
+	 */
+	private void tickHumanOpponent() {
+		boolean disrupted = opponent.hurtTime > 0 || !opponent.onGround();
+		if (disrupted) {
+			oppWasDisrupted = true;
+			opponent.zza = 0;
+			opponent.xxa = 0;
+			return;
+		}
+		if (oppWasDisrupted) {
+			oppWasDisrupted = false;
+			oppReactTicks = sampleReaction();
+		}
+
+		double dx = agent.getX() - opponent.getX();
+		double dz = agent.getZ() - opponent.getZ();
+		float yawToAgent = (float) Math.toDegrees(Math.atan2(-dx, dz));
+		float dyaw = Mth.wrapDegrees(yawToAgent - opponent.getYRot());
+		float yaw = opponent.getYRot() + Mth.clamp(dyaw, -OPP_TURN_RATE, OPP_TURN_RATE);
+		opponent.setYRot(yaw);
+		opponent.setYHeadRot(yaw);
+
+		if (--strafeFlipTicks <= 0) {
+			strafeDir = -strafeDir;
+			strafeFlipTicks = 20 + rng.nextInt(40);
+		}
+		opponent.xxa = 0.98f * strafeDir;
+		double dist = opponent.distanceTo(agent);
+		opponent.zza = dist > 3.0 ? 0.7f : (dist < 2.0 ? -0.5f : 0.0f);
+
+		if (oppReactTicks > 0) {
+			oppReactTicks--;
+			return;
+		}
+		if (opponent.getAttackStrengthScale(0.5f) < 0.9f) {
+			return;
+		}
+		Vec3 eye = opponent.getEyePosition();
+		Vec3 dir = agent.getEyePosition().subtract(eye).normalize();
+		Vec3 end = eye.add(dir.scale(opponent.entityInteractionRange()));
+		Optional<Vec3> hit = agent.getBoundingBox().clip(eye, end);
+		if (hit.isPresent() && !blockedByBlocks(eye, hit.get())) {
+			// no invulnerableTime check: a human can't see the window, so
+			// early swings land into it and do nothing (wasted timing)
+			opponent.swing(InteractionHand.MAIN_HAND);
+			opponent.attack(agent);
+			oppReactTicks = sampleReaction();
+		}
 	}
 
 	/** Fighting opponent: swings at the agent with perfect discipline —
@@ -359,8 +439,8 @@ public final class Arena {
 		if ("move".equals(cfg.stage)) {
 			return stepMove();
 		}
-		if ("combo".equals(cfg.stage)) {
-			return stepCombo();
+		if ("combo".equals(cfg.stage) || "fighter".equals(cfg.stage)) {
+			return stepCombo(); // fighter shares the combo reward structure
 		}
 
 		boolean onTarget = isCrosshairOnTarget();
@@ -582,6 +662,20 @@ public final class Arena {
 		buf.putFloat(agent.getAttackStrengthScale(1.0f));
 		buf.putFloat(agent.getHealth() / agent.getMaxHealth());
 		buf.putFloat(lastReach);
+	}
+
+	/** Debug/replay telemetry (PROTOCOL.md obs frame, 7 f32): both fighters'
+	 * positions relative to the arena center/floor plus the agent's yaw.
+	 * Never fed to the policy — only recorded for the dashboard's top-down
+	 * view, so the human-fair observation contract is untouched. */
+	public void writeTelemetry(ByteBuffer buf) {
+		buf.putFloat((float) (agent.getX() - centerX));
+		buf.putFloat((float) (agent.getZ() - centerZ));
+		buf.putFloat((float) (agent.getY() - floorY));
+		buf.putFloat(agent.getYRot());
+		buf.putFloat((float) (opponent.getX() - centerX));
+		buf.putFloat((float) (opponent.getZ() - centerZ));
+		buf.putFloat((float) (opponent.getY() - floorY));
 	}
 
 	private boolean isTargetVisible() {

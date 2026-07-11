@@ -46,8 +46,10 @@ public final class PilotController {
 	private boolean obsPending;
 	private int lateActions;
 	/** Consumed by KeyboardInputMixin: KeyMapping.setDown is overwritten by
-	 * KeyMapping.setAll() every in-game tick, so movement keys go via the mixin. */
-	private boolean wantForward;
+	 * KeyMapping.setAll() every in-game tick, so movement keys go via the mixin.
+	 * move: 0 none, 1 = W, 2 = S; strafe: 0 none, 1 = A, 2 = D. */
+	private int wantMove;
+	private int wantStrafe;
 	private boolean wantJump;
 	private boolean wantSprint;
 
@@ -105,8 +107,12 @@ public final class PilotController {
 		return target != null ? target.getName().getString() : null;
 	}
 
-	public boolean wantsForward() {
-		return wantForward;
+	public int wantsMove() {
+		return wantMove;
+	}
+
+	public int wantsStrafe() {
+		return wantStrafe;
 	}
 
 	public boolean wantsJump() {
@@ -167,7 +173,8 @@ public final class PilotController {
 		}
 		target = null;
 		obsPending = false;
-		wantForward = false;
+		wantMove = 0;
+		wantStrafe = 0;
 		wantJump = false;
 		wantSprint = false;
 		msg(mc, reason);
@@ -206,7 +213,8 @@ public final class PilotController {
 				+ Mth.clamp(a.dyaw(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK)));
 		player.setXRot(Mth.clamp(player.getXRot()
 				+ Mth.clamp(a.dpitch(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK), -90, 90));
-		wantForward = a.forward();
+		wantMove = a.move();
+		wantStrafe = a.strafe();
 		wantJump = a.jump();
 		wantSprint = a.sprint();
 		if (a.attack()) {

@@ -35,10 +35,12 @@ def centroid_x(mask: np.ndarray) -> float | None:
 
 def step_all(conn, dyaw=0.0, dpitch=0.0, attack=0, forward=0, reset=0):
     n = conn.hello.arenas
+    zeros = np.zeros(n, np.uint8)
     conn.send_actions(
         np.full(n, dyaw, np.float32), np.full(n, dpitch, np.float32),
         np.full(n, attack, np.uint8), np.full(n, forward, np.uint8),
-        np.full(n, reset, np.uint8))
+        zeros, np.full(n, forward, np.uint8),  # jump; sprint follows W
+        reset=np.full(n, reset, np.uint8))
     return conn.recv_obs()
 
 

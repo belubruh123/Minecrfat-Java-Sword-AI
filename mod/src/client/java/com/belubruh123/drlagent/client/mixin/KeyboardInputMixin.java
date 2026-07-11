@@ -28,9 +28,12 @@ public abstract class KeyboardInputMixin extends ClientInput {
 		if (!pilot.isEngaged()) {
 			return;
 		}
-		boolean forward = pilot.wantsForward();
-		this.keyPresses = new Input(forward, false, false, false,
+		int move = pilot.wantsMove();     // 0 none, 1 W, 2 S
+		int strafe = pilot.wantsStrafe(); // 0 none, 1 A (left), 2 D (right)
+		this.keyPresses = new Input(move == 1, move == 2, strafe == 1, strafe == 2,
 				pilot.wantsJump(), this.keyPresses.shift(), pilot.wantsSprint());
-		this.moveVector = new Vec2(0.0f, forward ? 1.0f : 0.0f);
+		// moveVector is (x: left+, y: forward+), matching KeyboardInput.tick
+		this.moveVector = new Vec2(strafe == 1 ? 1.0f : (strafe == 2 ? -1.0f : 0.0f),
+				move == 1 ? 1.0f : (move == 2 ? -1.0f : 0.0f));
 	}
 }

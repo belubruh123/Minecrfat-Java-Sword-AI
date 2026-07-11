@@ -20,8 +20,9 @@ public final class PilotBridge implements Closeable {
 	private static final int TYPE_ACTION = 1;
 	private static final int TYPE_OBS = 2;
 
-	public record Action(float dyaw, float dpitch, boolean attack, boolean forward,
-			boolean jump, boolean sprint) {
+	/** move: 0 none, 1 = W, 2 = S; strafe: 0 none, 1 = A (left), 2 = D (right). */
+	public record Action(float dyaw, float dpitch, boolean attack, int move,
+			int strafe, boolean jump, boolean sprint) {
 	}
 
 	private final Socket socket;
@@ -65,12 +66,14 @@ public final class PilotBridge implements Closeable {
 	/** Blocks up to the read timeout; throws SocketTimeoutException when late. */
 	public Action readAction() throws IOException {
 		byte[] p = readFrame(TYPE_ACTION);
-		if (p.length < 12) {
-			throw new IOException("short action frame: " + p.length + " bytes");
+		if (p.length < 13) {
+			throw new IOException("short action frame: " + p.length
+					+ " bytes — pilot.py predates this mod build, restart it");
 		}
 		float dyaw = Float.intBitsToFloat(intAt(p, 0));
 		float dpitch = Float.intBitsToFloat(intAt(p, 4));
-		return new Action(dyaw, dpitch, p[8] != 0, p[9] != 0, p[10] != 0, p[11] != 0);
+		return new Action(dyaw, dpitch, p[8] != 0, p[9] & 0xff, p[10] & 0xff,
+				p[11] != 0, p[12] != 0);
 	}
 
 	private static int intAt(byte[] b, int off) {

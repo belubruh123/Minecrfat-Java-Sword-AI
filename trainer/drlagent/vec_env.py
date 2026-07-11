@@ -59,7 +59,7 @@ class MinecraftVecEnv:
         self.record_dir = Path(record_dir) if record_dir else None
         self.max_recorded = max_recorded_episodes
         self._rec: dict[str, list] = {"masks": [], "actions": [], "rewards": [],
-                                      "scalars": [], "infos": []}
+                                      "scalars": [], "infos": [], "telemetry": []}
         self._rec_counter = 0
         if self.record_dir:
             self.record_dir.mkdir(parents=True, exist_ok=True)
@@ -85,19 +85,26 @@ class MinecraftVecEnv:
 
     def step(self, dyaw: np.ndarray, dpitch: np.ndarray,
              attack: np.ndarray | None = None, forward: np.ndarray | None = None,
-             jump: np.ndarray | None = None, sprint: np.ndarray | None = None):
+             jump: np.ndarray | None = None, sprint: np.ndarray | None = None,
+             move: np.ndarray | None = None, strafe: np.ndarray | None = None):
         """Actions in [-1,1] for the rotation axes; returns (rewards, dones, infos).
-        sprint defaults to forward — pre-combo stages trained with W implying
-        sprint, so their semantics are preserved when sprint isn't passed."""
+        Pre-fighter stages pass `forward` (bool W) and it maps to move=1;
+        sprint defaults to forward — those stages trained with W implying
+        sprint, so their semantics are preserved when sprint isn't passed.
+        The fighter stage passes move (0/1/2), strafe (0/1/2), jump, sprint
+        explicitly."""
         zeros = np.zeros(self.n, np.uint8)
-        forward = zeros if forward is None else forward
+        if move is None:
+            move = zeros if forward is None else forward
+        strafe = zeros if strafe is None else strafe
+        if sprint is None:
+            sprint = (np.asarray(move) == 1).astype(np.uint8)
+        attack = zeros if attack is None else attack
+        jump = zeros if jump is None else jump
         self.conn.send_actions(
             np.clip(dyaw, -1, 1) * MAX_TURN_DEG,
             np.clip(dpitch, -1, 1) * MAX_TURN_DEG,
-            zeros if attack is None else attack,
-            forward,
-            zeros if jump is None else jump,
-            forward if sprint is None else sprint)
+            attack, move, jump, sprint, strafe=strafe)
         obs = self.conn.recv_obs()
 
         masks = self._downsample(obs.masks)
@@ -107,10 +114,13 @@ class MinecraftVecEnv:
             a = self.record_arena
             self._rec["masks"].append(np.packbits(masks[a]))
             self._rec["actions"].append([float(dyaw[a]), float(dpitch[a]),
-                                         0.0 if attack is None else float(attack[a])])
+                                         float(attack[a]), float(move[a]),
+                                         float(strafe[a]), float(jump[a]),
+                                         float(sprint[a])])
             self._rec["rewards"].append(float(obs.rewards[a]))
             self._rec["scalars"].append(obs.scalars[a].copy())
             self._rec["infos"].append(int(obs.infos[a]))
+            self._rec["telemetry"].append(obs.telemetry[a].copy())
             if dones[a]:
                 self._flush_recording()
 
@@ -175,6 +185,7 @@ class MinecraftVecEnv:
             rewards=np.array(self._rec["rewards"], np.float32),
             scalars=np.stack(self._rec["scalars"]),
             infos=np.array(self._rec["infos"], np.uint8),
+            telemetry=np.stack(self._rec["telemetry"]),
             shape=np.array([self.h, self.w]),
         )
         meta = {"name": name, "frames": n_frames,

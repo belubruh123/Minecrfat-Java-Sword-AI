@@ -20,6 +20,12 @@ public final class EnvConfig {
 	/** Consecutive on-target ticks required to count as an aim lock. */
 	public int lockTicks = 3;
 	public String opponent = "static";
+	/** Humanized opponent: reaction delay range in ticks (~150-350 ms). */
+	public int oppReactionMin = 3;
+	public int oppReactionMax = 7;
+	/** With opponent "human": probability an episode uses the perfect
+	 * "fight" bot instead (rehearsal so the policy keeps a worst-case answer). */
+	public double oppFightProb = 0.0;
 
 	public static EnvConfig from(JsonObject config) {
 		EnvConfig c = new EnvConfig();
@@ -39,6 +45,9 @@ public final class EnvConfig {
 			if (cur.has("episode_ticks")) c.episodeTicks = cur.get("episode_ticks").getAsInt();
 			if (cur.has("lock_ticks")) c.lockTicks = cur.get("lock_ticks").getAsInt();
 			if (cur.has("opponent")) c.opponent = cur.get("opponent").getAsString();
+			if (cur.has("opp_reaction_min")) c.oppReactionMin = cur.get("opp_reaction_min").getAsInt();
+			if (cur.has("opp_reaction_max")) c.oppReactionMax = cur.get("opp_reaction_max").getAsInt();
+			if (cur.has("opp_fight_prob")) c.oppFightProb = cur.get("opp_fight_prob").getAsDouble();
 		}
 		return c;
 	}

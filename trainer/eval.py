@@ -13,7 +13,8 @@ import numpy as np
 import torch
 import yaml
 
-from drlagent.models import AimPolicy, ComboPolicy, MovePolicy, SwingPolicy
+from drlagent.models import (AimPolicy, ComboPolicy, FighterPolicy,
+                             MovePolicy, SwingPolicy)
 from drlagent.vec_env import MinecraftVecEnv
 
 
@@ -51,7 +52,7 @@ def main() -> None:
 
     aim = None
     swing = None
-    if ckpt_stage in ("swing", "move", "combo"):
+    if ckpt_stage in ("swing", "move", "combo", "fighter"):
         if not args.aim:
             raise SystemExit(f"{ckpt_stage} checkpoint: pass --aim <aim checkpoint>")
         aim = AimPolicy(stack, h, w, n_scalars)
@@ -60,15 +61,15 @@ def main() -> None:
         aim.eval()
     if ckpt_stage == "swing":
         policy = SwingPolicy(stack, h, w, n_scalars)
-    elif ckpt_stage in ("move", "combo"):
+    elif ckpt_stage in ("move", "combo", "fighter"):
         if not args.swing:
             raise SystemExit(f"{ckpt_stage} checkpoint: pass --swing <swing checkpoint>")
         swing = SwingPolicy(stack, h, w, n_scalars)
         swing.load_state_dict(torch.load(args.swing, map_location="cpu",
                                          weights_only=False)["policy"])
         swing.eval()
-        policy = (MovePolicy if ckpt_stage == "move" else ComboPolicy)(
-            stack, h, w, n_scalars)
+        policy = {"move": MovePolicy, "combo": ComboPolicy,
+                  "fighter": FighterPolicy}[ckpt_stage](stack, h, w, n_scalars)
     else:
         policy = AimPolicy(stack, h, w, n_scalars)
     policy.load_state_dict(ckpt["policy"])
@@ -100,6 +101,18 @@ def main() -> None:
                          forward=(a & 1).astype(np.uint8),
                          jump=((a >> 1) & 1).astype(np.uint8),
                          sprint=((a >> 2) & 1).astype(np.uint8))
+            elif ckpt_stage == "fighter":
+                aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
+                aim_a = aim_a.numpy()
+                swing_a, _, _, _ = swing.act(tm, ts)
+                a = action.numpy().astype(np.int64)
+                move, strafe, jump, sprint = FighterPolicy.decode(a)
+                env.step(aim_a[:, 0], aim_a[:, 1],
+                         attack=swing_a.numpy().astype(np.uint8),
+                         move=move.astype(np.uint8),
+                         strafe=strafe.astype(np.uint8),
+                         jump=jump.astype(np.uint8),
+                         sprint=sprint.astype(np.uint8))
             elif aim is not None:
                 aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
                 aim_a = aim_a.numpy()
@@ -114,17 +127,17 @@ def main() -> None:
     rets = [s["return"] for s in stats]
     print(f"checkpoint: {args.checkpoint} (trained {ckpt['step']} steps)")
     print(f"episodes:   {len(stats)}")
-    if ckpt_stage in ("swing", "move", "combo"):
+    if ckpt_stage in ("swing", "move", "combo", "fighter"):
         hits = [s["hits"] for s in stats]
         whiffs = [s["whiffs"] for s in stats]
         swings = sum(hits) + sum(whiffs)
         print(f"hits/ep:    mean {np.mean(hits):.1f}   whiffs/ep: mean {np.mean(whiffs):.1f}")
         print(f"hit rate:   {sum(hits) / max(swings, 1):.1%} of {swings} swings")
-        if ckpt_stage in ("move", "combo"):
+        if ckpt_stage in ("move", "combo", "fighter"):
             taken = [s["hits_taken"] for s in stats]
             print(f"hits taken: mean {np.mean(taken):.1f}/ep "
                   f"(damage ratio {sum(hits) / max(sum(taken), 1):.2f})")
-        if ckpt_stage == "combo":
+        if ckpt_stage in ("combo", "fighter"):
             crits = [s["crits"] for s in stats]
             sprints = [s["sprint_hits"] for s in stats]
             print(f"crits:      mean {np.mean(crits):.1f}/ep   "

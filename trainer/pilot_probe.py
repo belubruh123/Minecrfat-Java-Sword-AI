@@ -65,12 +65,12 @@ try:
         acts = []
         for _ in range(n):
             send_frame(f, TYPE_OBS, make_obs(cx))
-            dyaw, dpitch, attack, forward, jump, sprint = struct.unpack(
-                ">ffBBBB", read_frame(f, TYPE_ACTION))
+            dyaw, dpitch, attack, move, strafe, jump, sprint = struct.unpack(
+                ">ffBBBBB", read_frame(f, TYPE_ACTION))
             assert -15.001 <= dyaw <= 15.001 and -15.001 <= dpitch <= 15.001
-            assert attack in (0, 1) and forward in (0, 1)
+            assert attack in (0, 1) and move in (0, 1, 2) and strafe in (0, 1, 2)
             assert jump in (0, 1) and sprint in (0, 1)
-            acts.append((dyaw, dpitch, attack, forward))
+            acts.append((dyaw, dpitch, attack, int(move == 1)))
         return acts
 
     t0 = time.perf_counter()
