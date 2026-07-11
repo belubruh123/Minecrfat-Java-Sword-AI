@@ -215,10 +215,14 @@ public final class Arena {
 			Optional<Vec3> hit = opponent.getBoundingBox().clip(eye, end);
 			if (hit.isPresent() && !blockedByBlocks(eye, hit.get())) {
 				int hurtBefore = opponent.hurtTime;
+				// vanilla applies full damage + knockback only when the
+				// invulnerability window is at half or below (<=10 of 20);
+				// above that, escalating spam swings register difference
+				// damage with no knockback — the policy farms those, so
+				// they count as whiffs, mirroring vanilla's full-hit boundary
+				boolean clean = opponent.invulnerableTime <= 10;
 				agent.attack(opponent);
-				// hurt() refuses damage inside the invulnerability window; a
-				// fresh hurtTime is the signal the swing actually connected
-				hitLanded = opponent.hurtTime > hurtBefore;
+				hitLanded = clean && opponent.hurtTime > hurtBefore;
 				if (hitLanded) {
 					lastReach = (float) eye.distanceTo(hit.get());
 				}
@@ -369,8 +373,11 @@ public final class Arena {
 		}
 		buf.put(mask);
 
-		Vec3 vel = agent.getDeltaMovement();
-		buf.putFloat((float) Math.sqrt(vel.x * vel.x + vel.z * vel.z));
+		// actual displacement this tick, not getDeltaMovement(): that reads
+		// post-friction velocity (x0.546 on ground) and under-reports speed
+		double dx = agent.getX() - agent.xOld;
+		double dz = agent.getZ() - agent.zOld;
+		buf.putFloat((float) Math.sqrt(dx * dx + dz * dz));
 		double yawRad = Math.toRadians(agent.getYRot());
 		buf.putFloat((float) Math.sin(yawRad));
 		buf.putFloat((float) Math.cos(yawRad));

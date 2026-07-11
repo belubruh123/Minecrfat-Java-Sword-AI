@@ -24,6 +24,8 @@ def main() -> None:
                     help="yaml config supplying the eval curriculum")
     ap.add_argument("--aim", default=None,
                     help="aim checkpoint that steers during a swing eval")
+    ap.add_argument("--stochastic", action="store_true",
+                    help="sample the policy instead of argmax (aim stays deterministic)")
     ap.add_argument("--seed", type=int, default=12345)
     args = ap.parse_args()
 
@@ -64,7 +66,8 @@ def main() -> None:
             masks, scalars = env.observe()
             tm = torch.from_numpy(masks).float()
             ts = torch.from_numpy(scalars)
-            action, _, _, _ = policy.act(tm, ts, deterministic=True)
+            action, _, _, _ = policy.act(tm, ts,
+                                         deterministic=not args.stochastic)
             if aim is not None:
                 aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
                 aim_a = aim_a.numpy()
