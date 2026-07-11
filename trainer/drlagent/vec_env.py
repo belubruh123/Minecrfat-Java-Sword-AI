@@ -20,6 +20,7 @@ INFO_ELEVATED = 8
 INFO_WHIFF = 16
 INFO_CRIT = 32
 INFO_SPRINT_HIT = 64
+INFO_CHAIN_HIT = 128  # landed hit extended a combo (chain >= 2)
 
 SCALAR_SCALE = np.array([1 / 0.3, 1, 1, 1, 1 / 3.0, 1, 1, 1, 1 / 3.5],
                         dtype=np.float32)
@@ -53,6 +54,7 @@ class MinecraftVecEnv:
         self.episode_hits_taken = np.zeros(self.n, np.int64)
         self.episode_crits = np.zeros(self.n, np.int64)
         self.episode_sprint_hits = np.zeros(self.n, np.int64)
+        self.episode_chain_hits = np.zeros(self.n, np.int64)
         self.finished: list[dict] = []  # stats of episodes done since last drain
 
         self.record_arena = record_arena
@@ -131,6 +133,7 @@ class MinecraftVecEnv:
         self.episode_hits_taken += (obs.infos & INFO_HIT_TAKEN) > 0
         self.episode_crits += (obs.infos & INFO_CRIT) > 0
         self.episode_sprint_hits += (obs.infos & INFO_SPRINT_HIT) > 0
+        self.episode_chain_hits += (obs.infos & INFO_CHAIN_HIT) > 0
         for i in np.nonzero(dones)[0]:
             self.finished.append({
                 "arena": int(i),
@@ -143,6 +146,7 @@ class MinecraftVecEnv:
                 "hits_taken": int(self.episode_hits_taken[i]),
                 "crits": int(self.episode_crits[i]),
                 "sprint_hits": int(self.episode_sprint_hits[i]),
+                "chain_hits": int(self.episode_chain_hits[i]),
             })
             self.episode_return[i] = 0.0
             self.episode_len[i] = 0
@@ -151,6 +155,7 @@ class MinecraftVecEnv:
             self.episode_hits_taken[i] = 0
             self.episode_crits[i] = 0
             self.episode_sprint_hits[i] = 0
+            self.episode_chain_hits[i] = 0
 
         # done obs is the first frame of the new episode: restart its stack
         self.frames = np.roll(self.frames, -1, axis=1)

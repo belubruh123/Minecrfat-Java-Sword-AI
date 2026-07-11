@@ -286,6 +286,8 @@ class PPOTrainer:
                 summary["ep_crits"] = float(np.mean([s["crits"] for s in stats]))
                 summary["ep_sprint_hits"] = float(
                     np.mean([s["sprint_hits"] for s in stats]))
+                summary["ep_chain_hits"] = float(
+                    np.mean([s.get("chain_hits", 0) for s in stats]))
         for k, v in summary.items():
             if k not in ("step", "episodes"):
                 self.writer.add_scalar(k, v, self.global_step)

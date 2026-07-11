@@ -140,8 +140,11 @@ def main() -> None:
         if ckpt_stage in ("combo", "fighter"):
             crits = [s["crits"] for s in stats]
             sprints = [s["sprint_hits"] for s in stats]
+            chains = [s.get("chain_hits", 0) for s in stats]
             print(f"crits:      mean {np.mean(crits):.1f}/ep   "
                   f"sprint hits: mean {np.mean(sprints):.1f}/ep")
+            print(f"combo hits: mean {np.mean(chains):.1f}/ep "
+                  f"(hits landed <=40 ticks after the previous, nothing taken between)")
     else:
         succ = [s["success"] for s in stats]
         lens = [s["length"] for s in stats if s["success"]]

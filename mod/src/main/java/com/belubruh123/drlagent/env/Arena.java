@@ -56,7 +56,7 @@ public final class Arena {
 	private static final double BAND_MAX = 2.9;
 	private static final float IN_BAND_REWARD = 0.02f;
 	private static final float BAND_SHAPING = 0.2f;
-	private static final float HIT_TAKEN_PENALTY = 0.5f;
+	private static final float HIT_TAKEN_PENALTY = 0.75f;
 
 	// Combo-stage rewards: chained knockback hits and crits. A chained hit is
 	// a clean hit within CHAIN_WINDOW ticks of the previous one with no hit
@@ -71,6 +71,12 @@ public final class Arena {
 	// sprint-chase after knockback (~6 blocks + 12.5-tick cooldown) still chains.
 	private static final int CHAIN_WINDOW = 40;
 	private static final float CHAIN_BONUS = 0.25f;
+	// The user's target metric is the combo — hits landed without being hit
+	// in between — so the chain bonus escalates deep: the 9th consecutive
+	// clean hit earns +2.0 on top of its base pay. Taking a hit both breaks
+	// the chain and costs HIT_TAKEN_PENALTY, so vs the humanized opponent
+	// (where avoidance is actually possible) clean aggression dominates.
+	private static final int CHAIN_CAP = 8;
 	private static final float CRIT_BONUS_SCALE = 0.35f;
 	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
@@ -84,6 +90,8 @@ public final class Arena {
 	public static final int INFO_WHIFF = 16;
 	public static final int INFO_CRIT = 32;
 	public static final int INFO_SPRINT_HIT = 64;
+	/** Landed hit extended a combo (chain length >= 2 at this hit). */
+	public static final int INFO_CHAIN_HIT = 128;
 
 	private final int index;
 	private final ServerLevel level;
@@ -577,7 +585,7 @@ public final class Arena {
 				}
 				lastHitTick = episodeTick;
 				takenSinceLastHit = false;
-				reward += CHAIN_BONUS * Math.min(comboChain - 1, 4);
+				reward += CHAIN_BONUS * Math.min(comboChain - 1, CHAIN_CAP);
 			} else {
 				reward -= WHIFF_PENALTY;
 			}
@@ -599,6 +607,7 @@ public final class Arena {
 		else if (attackPressed) info |= INFO_WHIFF;
 		if (hitWasCrit) info |= INFO_CRIT;
 		if (hitWasSprint) info |= INFO_SPRINT_HIT;
+		if (hitLanded && comboChain >= 2) info |= INFO_CHAIN_HIT;
 		if (elevatedEpisode) info |= INFO_ELEVATED;
 		if (freshHitTaken) info |= INFO_HIT_TAKEN;
 

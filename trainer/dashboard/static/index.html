@@ -118,6 +118,12 @@ const CHARTS = [
    optional: true},
   {key: "ep_hits_taken", title: "Hits taken / episode (move)", fmt: v => v.toFixed(1),
    optional: true},
+  {key: "ep_chain_hits", title: "Combo hits / episode (chained, clean)",
+   fmt: v => v.toFixed(1), optional: true},
+  {key: "ep_sprint_hits", title: "Sprint hits / episode", fmt: v => v.toFixed(1),
+   optional: true},
+  {key: "ep_crits", title: "Crits / episode", fmt: v => v.toFixed(1),
+   optional: true},
 ];
 
 function drawChart(host, pts, spec) {
