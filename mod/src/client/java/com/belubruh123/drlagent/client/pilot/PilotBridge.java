@@ -20,7 +20,8 @@ public final class PilotBridge implements Closeable {
 	private static final int TYPE_ACTION = 1;
 	private static final int TYPE_OBS = 2;
 
-	public record Action(float dyaw, float dpitch, boolean attack, boolean forward) {
+	public record Action(float dyaw, float dpitch, boolean attack, boolean forward,
+			boolean jump, boolean sprint) {
 	}
 
 	private final Socket socket;
@@ -64,12 +65,12 @@ public final class PilotBridge implements Closeable {
 	/** Blocks up to the read timeout; throws SocketTimeoutException when late. */
 	public Action readAction() throws IOException {
 		byte[] p = readFrame(TYPE_ACTION);
-		if (p.length < 10) {
+		if (p.length < 12) {
 			throw new IOException("short action frame: " + p.length + " bytes");
 		}
 		float dyaw = Float.intBitsToFloat(intAt(p, 0));
 		float dpitch = Float.intBitsToFloat(intAt(p, 4));
-		return new Action(dyaw, dpitch, p[8] != 0, p[9] != 0);
+		return new Action(dyaw, dpitch, p[8] != 0, p[9] != 0, p[10] != 0, p[11] != 0);
 	}
 
 	private static int intAt(byte[] b, int off) {

@@ -18,6 +18,8 @@ INFO_HIT_LANDED = 2
 INFO_HIT_TAKEN = 4
 INFO_ELEVATED = 8
 INFO_WHIFF = 16
+INFO_CRIT = 32
+INFO_SPRINT_HIT = 64
 
 SCALAR_SCALE = np.array([1 / 0.3, 1, 1, 1, 1 / 3.0, 1, 1, 1, 1 / 3.5],
                         dtype=np.float32)
@@ -49,6 +51,8 @@ class MinecraftVecEnv:
         self.episode_hits = np.zeros(self.n, np.int64)
         self.episode_whiffs = np.zeros(self.n, np.int64)
         self.episode_hits_taken = np.zeros(self.n, np.int64)
+        self.episode_crits = np.zeros(self.n, np.int64)
+        self.episode_sprint_hits = np.zeros(self.n, np.int64)
         self.finished: list[dict] = []  # stats of episodes done since last drain
 
         self.record_arena = record_arena
@@ -80,14 +84,20 @@ class MinecraftVecEnv:
         return self.frames, self.scalars
 
     def step(self, dyaw: np.ndarray, dpitch: np.ndarray,
-             attack: np.ndarray | None = None, forward: np.ndarray | None = None):
-        """Actions in [-1,1] for the rotation axes; returns (rewards, dones, infos)."""
+             attack: np.ndarray | None = None, forward: np.ndarray | None = None,
+             jump: np.ndarray | None = None, sprint: np.ndarray | None = None):
+        """Actions in [-1,1] for the rotation axes; returns (rewards, dones, infos).
+        sprint defaults to forward — pre-combo stages trained with W implying
+        sprint, so their semantics are preserved when sprint isn't passed."""
         zeros = np.zeros(self.n, np.uint8)
+        forward = zeros if forward is None else forward
         self.conn.send_actions(
             np.clip(dyaw, -1, 1) * MAX_TURN_DEG,
             np.clip(dpitch, -1, 1) * MAX_TURN_DEG,
             zeros if attack is None else attack,
-            zeros if forward is None else forward)
+            forward,
+            zeros if jump is None else jump,
+            forward if sprint is None else sprint)
         obs = self.conn.recv_obs()
 
         masks = self._downsample(obs.masks)
@@ -109,6 +119,8 @@ class MinecraftVecEnv:
         self.episode_hits += (obs.infos & INFO_HIT_LANDED) > 0
         self.episode_whiffs += (obs.infos & INFO_WHIFF) > 0
         self.episode_hits_taken += (obs.infos & INFO_HIT_TAKEN) > 0
+        self.episode_crits += (obs.infos & INFO_CRIT) > 0
+        self.episode_sprint_hits += (obs.infos & INFO_SPRINT_HIT) > 0
         for i in np.nonzero(dones)[0]:
             self.finished.append({
                 "arena": int(i),
@@ -119,12 +131,16 @@ class MinecraftVecEnv:
                 "hits": int(self.episode_hits[i]),
                 "whiffs": int(self.episode_whiffs[i]),
                 "hits_taken": int(self.episode_hits_taken[i]),
+                "crits": int(self.episode_crits[i]),
+                "sprint_hits": int(self.episode_sprint_hits[i]),
             })
             self.episode_return[i] = 0.0
             self.episode_len[i] = 0
             self.episode_hits[i] = 0
             self.episode_whiffs[i] = 0
             self.episode_hits_taken[i] = 0
+            self.episode_crits[i] = 0
+            self.episode_sprint_hits[i] = 0
 
         # done obs is the first frame of the new episode: restart its stack
         self.frames = np.roll(self.frames, -1, axis=1)

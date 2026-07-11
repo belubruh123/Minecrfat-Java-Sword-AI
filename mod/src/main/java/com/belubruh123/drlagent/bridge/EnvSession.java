@@ -22,7 +22,7 @@ import java.util.List;
  */
 public final class EnvSession {
 	private static final float TRAINING_TICK_RATE = 10000.0f;
-	private static final int ACTION_BYTES = 4 + 4 + 1 + 1 + 1;
+	private static final int ACTION_BYTES = 4 + 4 + 1 + 1 + 1 + 1 + 1;
 
 	private final BridgeServer bridge;
 	private final ArenaManager arenas = new ArenaManager();
@@ -140,8 +140,10 @@ public final class EnvSession {
 			float dpitch = buf.getFloat();
 			boolean attack = buf.get() != 0;
 			boolean forward = buf.get() != 0;
+			boolean jump = buf.get() != 0;
+			boolean sprint = buf.get() != 0;
 			boolean reset = (buf.get() & 1) != 0;
-			list.get(i).applyAction(dyaw, dpitch, attack, forward, reset);
+			list.get(i).applyAction(dyaw, dpitch, attack, forward, jump, sprint, reset);
 		}
 	}
 

@@ -58,11 +58,20 @@ public final class Arena {
 	private static final float BAND_SHAPING = 0.2f;
 	private static final float HIT_TAKEN_PENALTY = 0.5f;
 
+	// Combo-stage rewards: chained knockback hits and crits. A chained hit is
+	// a clean hit within CHAIN_WINDOW ticks of the previous one with no hit
+	// taken in between; a crit pays half again its charge (vanilla deals 1.5x).
+	private static final int CHAIN_WINDOW = 30;
+	private static final float CHAIN_BONUS = 0.15f;
+	private static final float CRIT_BONUS_SCALE = 0.5f;
+
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
 	public static final int INFO_HIT_TAKEN = 4;
 	public static final int INFO_ELEVATED = 8;
 	public static final int INFO_WHIFF = 16;
+	public static final int INFO_CRIT = 32;
+	public static final int INFO_SPRINT_HIT = 64;
 
 	private final int index;
 	private final ServerLevel level;
@@ -91,6 +100,11 @@ public final class Arena {
 	private int strafeFlipTicks;
 	private int agentHurtTimeBefore;
 	private double bandDistBefore;
+	private boolean hitWasCrit;
+	private boolean hitWasSprint;
+	private int comboChain;
+	private int lastHitTick;
+	private boolean takenSinceLastHit;
 
 	public Arena(int index, ServerLevel level, Random rng) {
 		this.index = index;
@@ -157,6 +171,9 @@ public final class Arena {
 		float agentYaw = (float) (rng.nextDouble() * 360.0 - 180.0);
 		place(agent, centerX + 0.5, floorY, centerZ + 0.5, agentYaw, 0);
 		agent.setNoGravity(false);
+		comboChain = 0;
+		lastHitTick = -CHAIN_WINDOW - 1;
+		takenSinceLastHit = false;
 
 		boolean horizontal = rng.nextDouble() < cfg.horizontalProb || cfg.maxElev <= 0;
 		elevatedEpisode = !horizontal;
@@ -204,14 +221,19 @@ public final class Arena {
 		p.zza = 0;
 		p.xxa = 0;
 		p.setSprinting(false);
+		p.setJumping(false);
+		p.resetFallDistance();
 	}
 
-	public void applyAction(float dyaw, float dpitch, boolean attack, boolean forward, boolean reset) {
+	public void applyAction(float dyaw, float dpitch, boolean attack, boolean forward,
+			boolean jump, boolean sprint, boolean reset) {
 		if (reset) {
 			forceReset = true;
 		}
 		attackPressed = attack;
 		hitLanded = false;
+		hitWasCrit = false;
+		hitWasSprint = false;
 
 		agent.setOldPosAndRot();
 		opponent.setOldPosAndRot();
@@ -222,12 +244,21 @@ public final class Arena {
 
 		agent.zza = forward ? 1.0f : 0.0f;
 		agent.xxa = 0;
-		agent.setSprinting(forward);
+		// vanilla can only sprint while moving forward; a sprinting attack gets
+		// bonus knockback but is barred from critting (Player.attack)
+		agent.setSprinting(forward && sprint);
+		agent.setJumping(jump);
 
 		if (attack) {
 			// 26.1: swing() itself resets the attack ticker (even air swings),
 			// so sample the charge before anything else
 			lastAttackCharge = agent.getAttackStrengthScale(0.5f);
+			// vanilla crit gate at this instant (Player.attack, 26.1 bytecode):
+			// >=90% charge, falling, airborne, dry, unmounted, NOT sprinting
+			boolean critCandidate = lastAttackCharge > 0.9f && agent.fallDistance > 0
+					&& !agent.onGround() && !agent.onClimbable() && !agent.isInWater()
+					&& !agent.isPassenger() && !agent.isSprinting();
+			boolean sprintCandidate = lastAttackCharge > 0.9f && agent.isSprinting();
 			agent.swing(InteractionHand.MAIN_HAND);
 			Vec3 eye = agent.getEyePosition();
 			Vec3 end = eye.add(agent.getViewVector(1.0f).scale(agent.entityInteractionRange()));
@@ -244,6 +275,8 @@ public final class Arena {
 				hitLanded = clean && opponent.hurtTime > hurtBefore;
 				if (hitLanded) {
 					lastReach = (float) eye.distanceTo(hit.get());
+					hitWasCrit = critCandidate;
+					hitWasSprint = sprintCandidate;
 				}
 			}
 		}
@@ -309,6 +342,9 @@ public final class Arena {
 		}
 		if ("move".equals(cfg.stage)) {
 			return stepMove();
+		}
+		if ("combo".equals(cfg.stage)) {
+			return stepCombo();
 		}
 
 		boolean onTarget = isCrosshairOnTarget();
@@ -406,6 +442,60 @@ public final class Arena {
 		if (isCrosshairOnTarget()) info |= INFO_ON_TARGET;
 		if (hitLanded) info |= INFO_HIT_LANDED;
 		else if (attackPressed) info |= INFO_WHIFF;
+		if (elevatedEpisode) info |= INFO_ELEVATED;
+		if (freshHitTaken) info |= INFO_HIT_TAKEN;
+
+		opponent.setHealth(opponent.getMaxHealth());
+		opponent.getFoodData().setFoodLevel(20);
+		agent.setHealth(agent.getMaxHealth());
+		agent.getFoodData().setFoodLevel(20);
+
+		boolean fellOff = opponent.getY() < floorY - 2 || agent.getY() < floorY - 2;
+		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset;
+		if (done) {
+			reset();
+		}
+		return new StepResult(reward, done, info);
+	}
+
+	/** Combo stage: frozen aim + swing act; forward/jump/sprint learn to chain
+	 * knockback hits and land crits. Chained hits pay an escalating bonus, a
+	 * crit pays half again its charge (vanilla deals 1.5x), taking a hit
+	 * breaks the chain and is punished. No spacing shaping — positioning is
+	 * judged purely by what it enables. */
+	private StepResult stepCombo() {
+		float reward = 0;
+		if (attackPressed) {
+			if (hitLanded) {
+				reward += lastAttackCharge;
+				if (hitWasCrit) {
+					reward += CRIT_BONUS_SCALE * lastAttackCharge;
+				}
+				if (episodeTick - lastHitTick <= CHAIN_WINDOW && !takenSinceLastHit) {
+					comboChain++;
+				} else {
+					comboChain = 1;
+				}
+				lastHitTick = episodeTick;
+				takenSinceLastHit = false;
+				reward += CHAIN_BONUS * Math.min(comboChain - 1, 4);
+			} else {
+				reward -= WHIFF_PENALTY;
+			}
+		}
+		boolean freshHitTaken = agent.hurtTime > agentHurtTimeBefore;
+		agentHurtTimeBefore = agent.hurtTime;
+		if (freshHitTaken) {
+			reward -= HIT_TAKEN_PENALTY;
+			takenSinceLastHit = true;
+		}
+
+		int info = 0;
+		if (isCrosshairOnTarget()) info |= INFO_ON_TARGET;
+		if (hitLanded) info |= INFO_HIT_LANDED;
+		else if (attackPressed) info |= INFO_WHIFF;
+		if (hitWasCrit) info |= INFO_CRIT;
+		if (hitWasSprint) info |= INFO_SPRINT_HIT;
 		if (elevatedEpisode) info |= INFO_ELEVATED;
 		if (freshHitTaken) info |= INFO_HIT_TAKEN;
 

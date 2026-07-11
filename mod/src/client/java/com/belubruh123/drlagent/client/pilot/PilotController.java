@@ -45,8 +45,10 @@ public final class PilotController {
 	private boolean obsPending;
 	private int lateActions;
 	/** Consumed by KeyboardInputMixin: KeyMapping.setDown is overwritten by
-	 * KeyMapping.setAll() every in-game tick, so W/sprint go via the mixin. */
+	 * KeyMapping.setAll() every in-game tick, so movement keys go via the mixin. */
 	private boolean wantForward;
+	private boolean wantJump;
+	private boolean wantSprint;
 
 	private final byte[] mask = new byte[(BridgeConfig.OBS_WIDTH * BridgeConfig.OBS_HEIGHT + 7) / 8];
 	private double prevX, prevZ;
@@ -62,6 +64,14 @@ public final class PilotController {
 
 	public boolean wantsForward() {
 		return wantForward;
+	}
+
+	public boolean wantsJump() {
+		return wantJump;
+	}
+
+	public boolean wantsSprint() {
+		return wantSprint;
 	}
 
 	public void toggle(Minecraft mc) {
@@ -108,6 +118,8 @@ public final class PilotController {
 		target = null;
 		obsPending = false;
 		wantForward = false;
+		wantJump = false;
+		wantSprint = false;
 		msg(mc, reason);
 	}
 
@@ -145,6 +157,8 @@ public final class PilotController {
 		player.setXRot(Mth.clamp(player.getXRot()
 				+ Mth.clamp(a.dpitch(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK), -90, 90));
 		wantForward = a.forward();
+		wantJump = a.jump();
+		wantSprint = a.sprint();
 		if (a.attack()) {
 			attack(mc, player);
 		}

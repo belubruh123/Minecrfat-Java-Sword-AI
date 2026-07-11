@@ -110,14 +110,16 @@ class BridgeConnection:
 
     def send_actions(self, dyaw: np.ndarray, dpitch: np.ndarray,
                      attack: np.ndarray, forward: np.ndarray,
+                     jump: np.ndarray, sprint: np.ndarray,
                      reset: np.ndarray | None = None) -> None:
         n = self.hello.arenas
         if reset is None:
             reset = np.zeros(n, dtype=np.uint8)
         payload = bytearray()
         for i in range(n):
-            payload += struct.pack(">ffBBB", float(dyaw[i]), float(dpitch[i]),
-                                   int(attack[i]), int(forward[i]), int(reset[i]))
+            payload += struct.pack(">ffBBBBB", float(dyaw[i]), float(dpitch[i]),
+                                   int(attack[i]), int(forward[i]),
+                                   int(jump[i]), int(sprint[i]), int(reset[i]))
         self._send_frame(TYPE_ACTIONS, bytes(payload))
 
     def recv_obs(self) -> ObsBatch:

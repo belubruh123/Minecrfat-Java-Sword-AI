@@ -1,4 +1,4 @@
-# DRL Agent Bridge Protocol (v1)
+# DRL Agent Bridge Protocol (v2)
 
 TCP on localhost, default port **36565**. The **mod listens**, the trainer connects.
 The connection is lock-step: the server does not tick until it has an action
@@ -53,6 +53,8 @@ Repeated `arenas` times (arena index order):
 | dpitch| f32  | pitch delta, degrees/tick (mod clamps to ±15) |
 | attack| u8   | 1 = press attack this tick |
 | forward| u8  | 1 = W held this tick |
+| jump  | u8   | 1 = jump held this tick |
+| sprint| u8   | 1 = sprint held (only effective while forward is held) |
 | flags | u8   | bit 0: force episode reset |
 
 ## Observation batch (type 2)
@@ -65,7 +67,7 @@ Header: `u32 tick_counter`, then repeated `arenas` times:
 | scalars | f32 × 9 | order as in `hello.scalars` |
 | reward | f32 | reward earned by the tick just simulated |
 | done  | u8  | 1 = episode ended this tick (obs is the first of the new episode) |
-| info  | u8  | bit 0: crosshair on target; bit 1: hit landed; bit 2: hit taken; bit 3: episode has an elevated (non-horizontal) spawn |
+| info  | u8  | bit 0: crosshair on target; bit 1: hit landed; bit 2: hit taken; bit 3: episode has an elevated (non-horizontal) spawn; bit 4: whiff (attack pressed, no clean hit); bit 5: landed hit was a critical; bit 6: landed hit had the sprint-knockback bonus |
 
 Mask size for 426×240 = 12780 bytes.
 

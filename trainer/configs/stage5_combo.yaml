@@ -1,0 +1,38 @@
+# Stage 5: combo fighting — sprint-hit knockback chains and crits. Frozen aim
+# steers, frozen swing (sampled) picks swing ticks; PPO trains one 8-way head
+# over W / jump / sprint (bit 0/1/2). Chained clean hits (<=30 ticks apart,
+# nothing taken in between) pay escalating bonuses; crits pay 1.5x like
+# vanilla; sprinting and critting are mutually exclusive per swing, so the
+# policy has to learn when to W-tap into knockback and when to jump-crit.
+# Run from trainer/: python train.py configs/stage5_combo.yaml --run stage5_combo
+stage: combo
+seed: 5
+total_steps: 3_000_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../models/aim.pt
+swing_checkpoint: ../models/swing.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 400
+  lock_ticks: 3         # unused by the combo stage
+  opponent: fight
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.002
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

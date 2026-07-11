@@ -94,3 +94,13 @@ class SwingPolicy(nn.Module):
 class MovePolicy(SwingPolicy):
     """Categorical policy over {0: W released, 1: W held} — same architecture,
     separate class so checkpoints are self-describing."""
+
+
+class ComboPolicy(SwingPolicy):
+    """Categorical over the 8 movement-key combos: bit 0 = W, bit 1 = jump,
+    bit 2 = sprint. Supersedes MovePolicy — one head so PPO sees combos like
+    'W+sprint' and 'jump only, no sprint' (the crit setup) as distinct arms."""
+
+    def __init__(self, stack: int, height: int, width: int, n_scalars: int):
+        super().__init__(stack, height, width, n_scalars)
+        self.actor = _ortho(nn.Linear(256 + 32, 8), std=0.01)

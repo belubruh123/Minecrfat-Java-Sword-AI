@@ -30,7 +30,7 @@ public abstract class KeyboardInputMixin extends ClientInput {
 		}
 		boolean forward = pilot.wantsForward();
 		this.keyPresses = new Input(forward, false, false, false,
-				this.keyPresses.jump(), this.keyPresses.shift(), forward);
+				pilot.wantsJump(), this.keyPresses.shift(), pilot.wantsSprint());
 		this.moveVector = new Vec2(0.0f, forward ? 1.0f : 0.0f);
 	}
 }

@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from drlagent.models import AimPolicy, MovePolicy, SwingPolicy
+from drlagent.models import AimPolicy, ComboPolicy, MovePolicy, SwingPolicy
 from drlagent.vec_env import MAX_TURN_DEG, MinecraftVecEnv
 
 TYPE_JSON, TYPE_ACTION, TYPE_OBS = 0, 1, 2
@@ -38,6 +38,8 @@ def load_policy(cls, path: str | None, name: str):
         print(f"{name}: disabled ({p} does not exist)")
         return None, None
     ckpt = torch.load(p, map_location="cpu", weights_only=False)
+    if cls is None:  # movement head: the checkpoint's stage picks the class
+        cls = ComboPolicy if ckpt.get("stage") == "combo" else MovePolicy
     net = cls(*ckpt["obs_shape"])
     net.load_state_dict(ckpt["policy"])
     net.eval()
@@ -100,15 +102,20 @@ def serve_connection(conn, aim, swing, move, shape):
         ts = torch.from_numpy(scalars[None])
         with torch.no_grad():
             aim_a, _, _, _ = aim.act(tm, ts, deterministic=True)
-            attack = forward = 0
+            attack = forward = jump = sprint = 0
             if swing is not None:
                 attack = int(swing.act(tm, ts)[0].item())
             if move is not None:
-                forward = int(move.act(tm, ts)[0].item())
+                a = int(move.act(tm, ts)[0].item())
+                if isinstance(move, ComboPolicy):
+                    forward, jump, sprint = a & 1, (a >> 1) & 1, (a >> 2) & 1
+                else:  # move stage trained with W implying sprint
+                    forward, sprint = a, a
         dyaw = float(np.clip(aim_a[0, 0].item(), -1, 1)) * MAX_TURN_DEG
         dpitch = float(np.clip(aim_a[0, 1].item(), -1, 1)) * MAX_TURN_DEG
 
-        send_frame(f, TYPE_ACTION, struct.pack(">ffBB", dyaw, dpitch, attack, forward))
+        send_frame(f, TYPE_ACTION, struct.pack(">ffBBBB", dyaw, dpitch,
+                                               attack, forward, jump, sprint))
 
         infer_ms += (time.perf_counter() - t0) * 1000
         n_ticks += 1
@@ -123,9 +130,11 @@ def serve_connection(conn, aim, swing, move, shape):
 
 def main():
     ap = argparse.ArgumentParser()
+    default_move = MODELS / ("combo.pt" if (MODELS / "combo.pt").exists() else "move.pt")
     ap.add_argument("--aim", default=str(MODELS / "aim.pt"))
     ap.add_argument("--swing", default=str(MODELS / "swing.pt"))
-    ap.add_argument("--move", default=str(MODELS / "move.pt"))
+    ap.add_argument("--move", default=str(default_move),
+                    help="movement checkpoint: a move- or combo-stage .pt")
     ap.add_argument("--port", type=int, default=36566)
     args = ap.parse_args()
 
@@ -134,7 +143,7 @@ def main():
     if aim is None:
         raise SystemExit("the aim checkpoint is required")
     swing, _ = load_policy(SwingPolicy, args.swing, "swing")
-    move, _ = load_policy(MovePolicy, args.move, "move")
+    move, _ = load_policy(None, args.move, "move")
 
     srv = socket.create_server(("127.0.0.1", args.port))
     print(f"pilot server listening on 127.0.0.1:{args.port} — "
