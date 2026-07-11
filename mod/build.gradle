@@ -17,6 +17,18 @@ repositories {
 loom {
 	splitEnvironmentSourceSets()
 
+	runs {
+		// Headless-friendly client that boots straight onto the local dev
+		// server for pilot-mode testing: xvfb-run ./gradlew runPilotClient
+		pilotClient {
+			client()
+			configName = "Pilot Client"
+			runDir "run/pilot-client"
+			programArgs "--username", "PilotTester", "--quickPlayMultiplayer", "localhost:25565"
+			vmArgs "-Xmx1280M"
+		}
+	}
+
 	mods {
 		"drlagent" {
 			sourceSet sourceSets.main

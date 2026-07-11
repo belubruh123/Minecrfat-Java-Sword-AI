@@ -42,15 +42,18 @@ policies. It observes through the same code the agent trained on and acts
 only through vanilla input paths (key mappings, the normal attack packet) —
 it can do nothing a human at the keyboard could not.
 
+The trained weights ship in `models/` (aim.pt, swing.pt, move.pt) — no
+training needed to use the pilot.
+
 1. Build the mod: `cd mod && ./gradlew build` → `mod/build/libs/drlagent-*.jar`
    (the training server must be stopped first; it holds the Gradle lock).
 2. Install the jar in your client's `mods/` folder (Fabric Loader ≥ 0.19.3
-   + Fabric API for MC 26.1.2), together with a copy of `trainer/` and the
-   `runs/` checkpoints on the same machine.
+   + Fabric API for MC 26.1.2), together with a copy of `trainer/` and
+   `models/` on the same machine.
 3. Start the inference server: `cd trainer && python pilot.py`
-   (defaults: aim `stage2_vertical_v2/best.pt`, swing `stage3_swing/latest.pt`,
-   move `stage4_move/latest.pt`; omit/point `--swing`/`--move` elsewhere for
-   staged testing).
+   (defaults to the `models/` checkpoints; point `--aim`/`--swing`/`--move`
+   at other files for staged testing — a missing swing/move file just
+   disables that head).
 4. In game, press **G** (rebindable: "Toggle DRL Pilot"). The pilot locks on
    to the nearest player and fights; press G again to take back control. It
    auto-disengages if the inference server stops answering.

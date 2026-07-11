@@ -26,7 +26,7 @@ from drlagent.models import AimPolicy, MovePolicy, SwingPolicy
 from drlagent.vec_env import MAX_TURN_DEG, MinecraftVecEnv
 
 TYPE_JSON, TYPE_ACTION, TYPE_OBS = 0, 1, 2
-RUNS = Path(__file__).resolve().parent.parent / "runs"
+MODELS = Path(__file__).resolve().parent.parent / "models"
 
 
 def load_policy(cls, path: str | None, name: str):
@@ -123,9 +123,9 @@ def serve_connection(conn, aim, swing, move, shape):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--aim", default=str(RUNS / "stage2_vertical_v2" / "best.pt"))
-    ap.add_argument("--swing", default=str(RUNS / "stage3_swing" / "latest.pt"))
-    ap.add_argument("--move", default=str(RUNS / "stage4_move" / "latest.pt"))
+    ap.add_argument("--aim", default=str(MODELS / "aim.pt"))
+    ap.add_argument("--swing", default=str(MODELS / "swing.pt"))
+    ap.add_argument("--move", default=str(MODELS / "move.pt"))
     ap.add_argument("--port", type=int, default=36566)
     args = ap.parse_args()
 

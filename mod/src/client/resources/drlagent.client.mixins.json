@@ -3,6 +3,7 @@
 	"package": "com.belubruh123.drlagent.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"KeyboardInputMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
