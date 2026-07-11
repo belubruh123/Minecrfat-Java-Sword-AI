@@ -63,12 +63,16 @@ public final class Arena {
 	// taken in between; a crit pays half again its charge (vanilla deals 1.5x).
 	// Sprint hits pay their own bonus: knockback is utility, not damage, so
 	// without it the policy rationally drops sprint for crit-fishing (observed
-	// at 1.75M steps: sprint hits collapsed to 0). The window is sized so a
+	// at 1.75M steps: sprint hits collapsed to 0). Sprint must outpay crit:
+	// exploring the sprint bit mid-air voids crits (the crit gate requires
+	// !isSprinting), so at 0.35 the bonus lost to the crit's 0.5 everywhere
+	// and sprint stalled at ~1/ep. The two apply in disjoint states (grounded
+	// vs airborne), so both skills survive. The window is sized so a
 	// sprint-chase after knockback (~6 blocks + 12.5-tick cooldown) still chains.
 	private static final int CHAIN_WINDOW = 40;
-	private static final float CHAIN_BONUS = 0.15f;
+	private static final float CHAIN_BONUS = 0.2f;
 	private static final float CRIT_BONUS_SCALE = 0.5f;
-	private static final float SPRINT_HIT_BONUS_SCALE = 0.35f;
+	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
 
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;

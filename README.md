@@ -4,9 +4,11 @@ Trains a deep-RL agent to play diamond-kit sword PvP from human-fair
 observations: a 426×240 binary silhouette of the opponent (what a player
 sees, computed geometrically — no rendering) plus the scalars a human also
 knows (own speed, yaw/pitch, height, cooldown, health, last-hit reach).
-Three policies are trained cumulatively, earlier ones frozen: **aim**
+Policies are trained cumulatively, earlier ones frozen: **aim**
 (Δyaw/Δpitch) → **swing** (attack timing + reach) → **move** (W key /
-sprint spacing). See `PROTOCOL.md` for the wire format.
+sprint spacing) → **combo** (sprint-hit knockback chains + jump crits).
+See `PROTOCOL.md` for the wire format and **`SETUP.md` for step-by-step
+install/usage instructions** (backend, pilot, training).
 
 ## Layout
 
@@ -54,9 +56,10 @@ training needed to use the pilot.
    (defaults to the `models/` checkpoints; point `--aim`/`--swing`/`--move`
    at other files for staged testing — a missing swing/move file just
    disables that head).
-4. In game, press **G** (rebindable: "Toggle DRL Pilot"). The pilot locks on
-   to the nearest player and fights; press G again to take back control. It
-   auto-disengages if the inference server stops answering.
+4. In game, press **G** (rebindable: "Toggle DRL Pilot") or use the commands:
+   `/pilot on`, `/pilot off`, `/pilot status`, `/pilot port <n>`. The pilot
+   locks on to the nearest player and fights; toggle again to take back
+   control. It auto-disengages if the inference server stops answering.
 
 Use it only where it's allowed — on your own server or with consenting
 opponents. On public servers this is indistinguishable from botting and

@@ -41,6 +41,7 @@ public final class PilotController {
 	private static final int REACH_CONFIRM_TICKS = 10;
 
 	private PilotBridge bridge;
+	private int port = PilotBridge.DEFAULT_PORT;
 	private AbstractClientPlayer target;
 	private boolean obsPending;
 	private int lateActions;
@@ -60,6 +61,20 @@ public final class PilotController {
 
 	public boolean isEngaged() {
 		return bridge != null;
+	}
+
+	public int getPort() {
+		return port;
+	}
+
+	/** Takes effect on the next engage; /pilot port while engaged reconnects. */
+	public void setPort(int port) {
+		this.port = port;
+	}
+
+	/** The player the pilot is currently fighting, or null. */
+	public String targetName() {
+		return target != null ? target.getName().getString() : null;
 	}
 
 	public boolean wantsForward() {
@@ -82,17 +97,17 @@ public final class PilotController {
 		}
 	}
 
-	private void engage(Minecraft mc) {
+	public void engage(Minecraft mc) {
 		LocalPlayer player = mc.player;
 		if (player == null || mc.level == null) {
 			return;
 		}
 		PilotBridge b;
 		try {
-			b = new PilotBridge(PilotBridge.DEFAULT_PORT, 300, 45);
+			b = new PilotBridge(port, 300, 45);
 			b.handshake(BridgeConfig.OBS_WIDTH, BridgeConfig.OBS_HEIGHT);
 		} catch (IOException e) {
-			msg(mc, "pilot server unreachable on :" + PilotBridge.DEFAULT_PORT
+			msg(mc, "pilot server unreachable on :" + port
 					+ " — start trainer/pilot.py first (" + e.getMessage() + ")");
 			return;
 		}
