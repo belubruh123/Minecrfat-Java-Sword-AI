@@ -61,9 +61,14 @@ public final class Arena {
 	// Combo-stage rewards: chained knockback hits and crits. A chained hit is
 	// a clean hit within CHAIN_WINDOW ticks of the previous one with no hit
 	// taken in between; a crit pays half again its charge (vanilla deals 1.5x).
-	private static final int CHAIN_WINDOW = 30;
+	// Sprint hits pay their own bonus: knockback is utility, not damage, so
+	// without it the policy rationally drops sprint for crit-fishing (observed
+	// at 1.75M steps: sprint hits collapsed to 0). The window is sized so a
+	// sprint-chase after knockback (~6 blocks + 12.5-tick cooldown) still chains.
+	private static final int CHAIN_WINDOW = 40;
 	private static final float CHAIN_BONUS = 0.15f;
 	private static final float CRIT_BONUS_SCALE = 0.5f;
+	private static final float SPRINT_HIT_BONUS_SCALE = 0.35f;
 
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
@@ -470,6 +475,9 @@ public final class Arena {
 				reward += lastAttackCharge;
 				if (hitWasCrit) {
 					reward += CRIT_BONUS_SCALE * lastAttackCharge;
+				}
+				if (hitWasSprint) {
+					reward += SPRINT_HIT_BONUS_SCALE * lastAttackCharge;
 				}
 				if (episodeTick - lastHitTick <= CHAIN_WINDOW && !takenSinceLastHit) {
 					comboChain++;
