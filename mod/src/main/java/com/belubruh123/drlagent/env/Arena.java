@@ -339,6 +339,7 @@ public final class Arena {
 					lastReach = (float) eye.distanceTo(hit.get());
 					hitWasCrit = critCandidate;
 					hitWasSprint = sprintCandidate;
+					applyPlayerKnockback(agent, opponent, sprintCandidate);
 				}
 			}
 		}
@@ -350,7 +351,11 @@ public final class Arena {
 			tickStrafeOpponent();
 			tickOpponentAttack();
 		} else if ("human".equals(cfg.opponent)) {
-			tickHumanOpponent();
+			tickHumanOpponent(true);
+		} else if ("passive".equals(cfg.opponent)) {
+			// combo school: human movement + hitstun/airborne disruption
+			// (so knockback actually carries it), but it never swings back
+			tickHumanOpponent(false);
 		}
 		// No manual agent/opponent tick: the server level ticks entities in
 		// force-loaded chunks itself — adding one here double-ticks physics
@@ -370,7 +375,7 @@ public final class Arena {
 	 * aim, no intentional movement, plus a fresh reaction delay on recovery.
 	 * This is what makes juggling, spacing and hit-selection pay off.
 	 */
-	private void tickHumanOpponent() {
+	private void tickHumanOpponent(boolean canAttack) {
 		boolean disrupted = opponent.hurtTime > 0 || !opponent.onGround();
 		if (disrupted) {
 			oppWasDisrupted = true;
@@ -399,6 +404,9 @@ public final class Arena {
 		double dist = opponent.distanceTo(agent);
 		opponent.zza = dist > 3.0 ? 0.7f : (dist < 2.0 ? -0.5f : 0.0f);
 
+		if (!canAttack) {
+			return;
+		}
 		if (opponent.getAttackStrengthScale(0.5f) < 0.9f) {
 			return;
 		}
@@ -420,7 +428,11 @@ public final class Arena {
 		// no invulnerableTime check: a human can't see the window, so
 		// early swings land into it and do nothing (wasted timing)
 		opponent.swing(InteractionHand.MAIN_HAND);
+		int hurtBefore = agent.hurtTime;
 		opponent.attack(agent);
+		if (agent.hurtTime > hurtBefore) {
+			applyPlayerKnockback(opponent, agent, false);
+		}
 		oppSwung = true;
 		oppReactTicks = sampleReaction();
 	}
@@ -438,7 +450,11 @@ public final class Arena {
 		if (hit.isPresent() && !blockedByBlocks(eye, hit.get())
 				&& agent.invulnerableTime <= 10) {
 			opponent.swing(InteractionHand.MAIN_HAND);
+			int hurtBefore = agent.hurtTime;
 			opponent.attack(agent);
+			if (agent.hurtTime > hurtBefore) {
+				applyPlayerKnockback(opponent, agent, false);
+			}
 			oppSwung = true;
 		}
 	}
@@ -465,6 +481,24 @@ public final class Arena {
 	}
 
 	public record StepResult(float reward, boolean done, int info) {
+	}
+
+	/** Vanilla applies player-victim knockback on the victim's CLIENT: the
+	 * server computes it, sends a motion packet, and restores the server-side
+	 * velocity (the victim's client simulates the shove). Fake players have
+	 * no client, so every hit's knockback silently evaporated — measured as
+	 * 0.00 blocks of launch over 115 recorded hits. Re-apply it server-side
+	 * with vanilla's own numbers: hurt knockback 0.4 away from the attacker
+	 * (LivingEntity.hurtServer), plus 0.5 along the attacker's facing for
+	 * sprint hits (Player.attack -> causeExtraKnockback, 26.1 bytecode). */
+	private static void applyPlayerKnockback(FakePlayer attacker, FakePlayer victim,
+			boolean sprint) {
+		victim.knockback(0.4,
+				attacker.getX() - victim.getX(), attacker.getZ() - victim.getZ());
+		if (sprint) {
+			float yawRad = attacker.getYRot() * ((float) Math.PI / 180f);
+			victim.knockback(0.5, Mth.sin(yawRad), -Mth.cos(yawRad));
+		}
 	}
 
 	/** Called after the world tick: computes reward, handles episode end + auto-reset. */

@@ -24,7 +24,7 @@ curriculum:
   yaw_range: 90.0
   episode_ticks: 400
   lock_ticks: 3         # unused by the fighter stage
-  opponent: strafe      # moves, never attacks — pure combo practice
+  opponent: passive     # human movement + real hitstun, never attacks
   allow_jump: 0
 
 ppo:
