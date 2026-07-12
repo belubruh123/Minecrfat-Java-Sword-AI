@@ -46,10 +46,13 @@ public final class Arena {
 	// First attempt penalized |dyaw| while on target and lock success fell
 	// 96%->73% by 250k — it was punishing correct pursuit.
 	private static final float AIM_JERK_COST = 0.2f;
-	// Sub-degree aim commands snap to zero: the policy gets a true "hold the
-	// mouse still" action (a Gaussian head can never output exact 0), so
-	// once aimed it can REST instead of drift-and-correct forever.
-	private static final float AIM_DEADZONE = 0.5f;
+	// User's aim doctrine: a move must be worth >= 5 degrees or not happen at
+	// all — deliberate flicks, zero chatter. Commands under the deadzone snap
+	// to 0 (a Gaussian head can never output exact 0, so this IS the "hold
+	// still" action). Anywhere on the white blob counts as aimed (no
+	// centering pay while on target), and moving while aimed costs flat.
+	private static final float AIM_DEADZONE = 5.0f;
+	private static final float ON_TARGET_MOVE_PENALTY = 0.15f;
 	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
 	// outpays the lock bonus and the policy farms it by never completing a lock.
 	private static final int MAX_PAID_ON_TARGET = 10;
@@ -584,18 +587,24 @@ public final class Arena {
 		double angErr = currentAngleError();
 
 		float reward = 0;
-		reward += (float) (SHAPING_SCALE * (prevAngErr - angErr) / 180.0);
 		if (onTarget) {
 			if (paidOnTargetTicks < MAX_PAID_ON_TARGET) {
 				reward += ON_TARGET_REWARD;
 				paidOnTargetTicks++;
 			}
 			consecOnTarget++;
+			// aimed = anywhere on the blob; moving the mouse now is wrong
+			if (lastDyaw != 0 || lastDpitch != 0) {
+				reward -= ON_TARGET_MOVE_PENALTY;
+			}
 		} else {
+			// centering shaping only while OFF target — on the blob every
+			// pixel is equally good, there is nothing to creep toward
+			reward += (float) (SHAPING_SCALE * (prevAngErr - angErr) / 180.0);
 			consecOnTarget = 0;
 		}
-		// jerk cost: smooth pursuit is free, bang-bang alternation pays
-		// two-thirds of the on-target reward every tick, a flick pays once
+		// jerk cost: rest and steady turns are free, bang-bang alternation
+		// pays two-thirds of the on-target reward every tick, a flick once
 		reward -= AIM_JERK_COST * aimJerk;
 		reward -= TIME_PENALTY;
 		prevAngErr = angErr;

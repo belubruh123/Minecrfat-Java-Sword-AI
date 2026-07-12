@@ -17,7 +17,12 @@ seed: 81
 total_steps: 1_500_000
 downsample: 3
 frame_stack: 4
-init_checkpoint: ../models/aim.pt
+# v3 doctrine (user): moves are >=5-degree deliberate flicks or nothing
+# (AIM_DEADZONE 5.0), anywhere on the blob counts as aimed (centering
+# shaping gated to off-target only), and moving while aimed pays a flat
+# ON_TARGET_MOVE_PENALTY. Warm starts from the completed jerk-cost v2 run
+# (94% locks, already de-thrashed).
+init_checkpoint: ../runs/aim_smooth_v2/final.pt
 
 curriculum:
   horizontal_prob: 0.75
