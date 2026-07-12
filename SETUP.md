@@ -82,9 +82,11 @@ are never locked out of your own character.
 `pilot.py` options: `--aim/--swing/--move` point at other checkpoints
 (omitting one disables that head — useful for testing aim only), `--port`
 changes the listen port. It prefers `models/combo.pt` over `models/move.pt`
-automatically when both exist. Aim smoothing is on by default (the raw
-policy is accurate but visibly shaky — it slams the turn clamp every tick);
-`--raw-aim` disables it.
+automatically when both exist. Human-natural output is on by default:
+aim smoothing (the raw policy is accurate but visibly shaky) and input
+humanizing (keys held at human timescales, clicks jittered and capped at
+human rates instead of 20 frame-perfect decisions per second).
+`--raw-aim` / `--raw-keys` disable them.
 
 **Fair-play warning**: the pilot only sees what a player could see and only
 acts through vanilla input paths, but on public servers it is still botting

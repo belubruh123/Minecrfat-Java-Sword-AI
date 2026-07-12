@@ -14,6 +14,7 @@ staged testing (aim-only, aim+swing) works before stage 4 finishes.
 
 import argparse
 import json
+import random
 import socket
 import struct
 import time
@@ -52,6 +53,48 @@ class AimSmoother:
         self.state += self.alpha * (two_tap - self.state)
         out = np.clip(self.state, -self.MAX_RATE, self.MAX_RATE)
         return float(out[0]), float(out[1])
+
+
+class InputHumanizer:
+    """Discrete inputs at human timescales. The policy re-decides every key
+    20x a second; a person holds keys for hundreds of ms, doesn't re-toggle
+    sprint tick by tick, clicks with a little timing jitter, and can't click
+    faster than ~7/s. A key change is adopted only after the current state
+    has been held for its minimum time; attacks get 0-2 ticks of jitter and
+    a minimum re-click gap."""
+
+    MIN_HOLD = {"move": 4, "strafe": 3, "jump": 2, "sprint": 6}  # ticks
+    MIN_CLICK_GAP = 3
+
+    def __init__(self):
+        self.rng = random.Random()
+        self.state = {"move": 0, "strafe": 0, "jump": 0, "sprint": 0}
+        self.held = {k: 99 for k in self.state}
+        self.click_delay = -1  # -1 = no click pending
+        self.since_click = 99
+
+    def keys(self, move: int, strafe: int, jump: int, sprint: int):
+        want = {"move": move, "strafe": strafe, "jump": jump, "sprint": sprint}
+        for k, v in want.items():
+            self.held[k] += 1
+            if v != self.state[k] and self.held[k] >= self.MIN_HOLD[k]:
+                self.state[k] = v
+                self.held[k] = 0
+        s = self.state
+        return s["move"], s["strafe"], s["jump"], s["sprint"]
+
+    def attack(self, want: int) -> int:
+        self.since_click += 1
+        if want and self.click_delay < 0 and self.since_click >= self.MIN_CLICK_GAP:
+            self.click_delay = self.rng.choice((0, 1, 1, 2))
+        if self.click_delay < 0:
+            return 0
+        if self.click_delay == 0:
+            self.click_delay = -1
+            self.since_click = 0
+            return 1
+        self.click_delay -= 1
+        return 0
 
 
 def load_policy(cls, path: str | None, name: str):
@@ -93,9 +136,10 @@ def send_frame(f, ftype, payload):
     f.flush()
 
 
-def serve_connection(conn, aim, swing, move, shape, smooth=True):
+def serve_connection(conn, aim, swing, move, shape, smooth=True, humanize=True):
     stack, h, w, n_scalars = shape
     smoother = AimSmoother() if smooth else None
+    humanizer = InputHumanizer() if humanize else None
     f = conn.makefile("rwb")
     hello = json.loads(read_frame(f, TYPE_JSON))
     width, height = hello["width"], hello["height"]
@@ -144,6 +188,9 @@ def serve_connection(conn, aim, swing, move, shape, smooth=True):
         dpitch = float(np.clip(aim_a[0, 1].item(), -1, 1)) * MAX_TURN_DEG
         if smoother is not None:
             dyaw, dpitch = smoother(dyaw, dpitch)
+        if humanizer is not None:
+            mv, strafe, jump, sprint = humanizer.keys(mv, strafe, jump, sprint)
+            attack = humanizer.attack(attack)
 
         send_frame(f, TYPE_ACTION, struct.pack(">ffBBBBB", dyaw, dpitch, attack,
                                                mv, strafe, jump, sprint))
@@ -169,6 +216,8 @@ def main():
     ap.add_argument("--port", type=int, default=36566)
     ap.add_argument("--raw-aim", action="store_true",
                     help="disable aim smoothing (the raw policy shakes)")
+    ap.add_argument("--raw-keys", action="store_true",
+                    help="disable input humanizing (per-tick key retoggling)")
     args = ap.parse_args()
 
     torch.set_num_threads(2)
@@ -186,7 +235,8 @@ def main():
         conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
             serve_connection(conn, aim, swing, move, shape,
-                             smooth=not args.raw_aim)
+                             smooth=not args.raw_aim,
+                             humanize=not args.raw_keys)
         except (ConnectionError, OSError) as e:
             print(f"client disconnected: {e}")
         finally:
