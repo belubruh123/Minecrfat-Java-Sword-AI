@@ -30,7 +30,10 @@ import java.util.UUID;
  * opponent. Owns per-episode state and the stage reward computation.
  */
 public final class Arena {
-	private static final int PLATFORM_RADIUS = 20;
+	// Sized for LONG combos: each hit knocks the target ~3 blocks back and it
+	// walks partway back during the cooldown; a 20-hit chain still drifts a
+	// few dozen blocks, and the fight must not ring-out before the combo can.
+	private static final int PLATFORM_RADIUS = 32;
 	private static final float MAX_TURN_PER_TICK = 15.0f;
 
 	// Stage-1 aim reward constants
@@ -423,14 +426,11 @@ public final class Arena {
 		opponent.setYRot(yaw);
 		opponent.setYHeadRot(yaw);
 
-		if (--strafeFlipTicks <= 0) {
-			strafeDir = -strafeDir;
-			strafeFlipTicks = 20 + rng.nextInt(40);
-		}
-		opponent.xxa = 0.98f * strafeDir;
+		// no dodging (user: the opponent should only face the agent and walk
+		// forward): straight-line chase, sprinting while far. Strafing
+		// opponents can return in a later stage once 20-hit combos hold.
+		opponent.xxa = 0;
 		double dist = opponent.distanceTo(agent);
-		// a real opponent comes AT you: full forward, sprinting while far —
-		// the agent's combos have to work against someone closing the gap
 		opponent.zza = dist > 3.0 ? 1.0f : (dist < 2.0 ? -0.5f : 0.0f);
 		opponent.setSprinting(dist > 4.0 && opponent.onGround());
 
