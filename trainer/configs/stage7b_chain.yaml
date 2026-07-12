@@ -22,13 +22,14 @@ curriculum:
   dist_min: 3.0
   dist_max: 10.0
   yaw_range: 90.0
-  episode_ticks: 400
+  episode_ticks: 1200   # timeout is only a draw; duels usually end far sooner
   lock_ticks: 3         # unused by the fighter stages
   opponent: human
   opp_reaction_min: 3   # 150 ms
   opp_reaction_max: 7   # 350 ms
   opp_fight_prob: 0.2
   allow_jump: 0
+  mortal: 1             # real hearts: kill ends the episode (+5), dying -5
 
 ppo:
   lr: 2.5e-4

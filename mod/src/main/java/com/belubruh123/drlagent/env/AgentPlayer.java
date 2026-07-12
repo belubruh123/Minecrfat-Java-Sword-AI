@@ -36,6 +36,14 @@ public final class AgentPlayer extends FakePlayer {
 		return false;
 	}
 
+	// Mortal episodes end at 0 HP, but the vanilla death pipeline must never
+	// run for arena players: die() would broadcast a death message, drop the
+	// diamond kit as item entities and schedule removal. The arena detects
+	// health <= 0 itself, ends the episode, and reset() revives the player.
+	@Override
+	public void die(DamageSource source) {
+	}
+
 	@Override
 	public void tick() {
 		this.baseTick();               // hurtTime/fire/air timers

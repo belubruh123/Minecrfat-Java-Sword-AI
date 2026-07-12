@@ -81,6 +81,11 @@ public final class Arena {
 	// pennies, orbiting the opponent all episode is ruinous. Only an aimbot
 	// can fight while circling — combos should run mostly straight lines.
 	private static final float STRAFE_COST = 0.015f;
+	// Mortal fights (cfg.mortal): the episode IS the duel — winning it pays
+	// like a deep combo, losing it costs the same. Dying must never be the
+	// cheap way out of a bad position.
+	private static final float KILL_REWARD = 5.0f;
+	private static final float DEATH_PENALTY = 5.0f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -777,13 +782,29 @@ public final class Arena {
 		if (elevatedEpisode) info |= INFO_ELEVATED;
 		if (freshHitTaken) info |= INFO_HIT_TAKEN;
 
-		opponent.setHealth(opponent.getMaxHealth());
+		boolean opponentDead = false;
+		boolean agentDead = false;
+		if (cfg.mortal) {
+			// real fight: health persists (vanilla food regen only), the
+			// duel ends when someone drops
+			opponentDead = opponent.getHealth() <= 0;
+			agentDead = agent.getHealth() <= 0;
+			if (opponentDead) {
+				reward += KILL_REWARD;
+			}
+			if (agentDead) {
+				reward -= DEATH_PENALTY;
+			}
+		} else {
+			opponent.setHealth(opponent.getMaxHealth());
+			agent.setHealth(agent.getMaxHealth());
+		}
 		opponent.getFoodData().setFoodLevel(20);
-		agent.setHealth(agent.getMaxHealth());
 		agent.getFoodData().setFoodLevel(20);
 
 		boolean fellOff = opponent.getY() < floorY - 2 || agent.getY() < floorY - 2;
-		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset;
+		boolean done = episodeTick >= cfg.episodeTicks || fellOff || forceReset
+				|| opponentDead || agentDead;
 		if (done) {
 			reset();
 		}

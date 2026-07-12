@@ -29,6 +29,9 @@ public final class EnvConfig {
 	/** 0 makes the agent's jump input a no-op (no-jump curriculum: grounded
 	 * combos only; no crits, which require falling). */
 	public boolean allowJump = true;
+	/** 1 = real fight: no per-tick healing (vanilla food regen only), the
+	 * episode ends when someone dies, a kill pays and dying is punished. */
+	public boolean mortal = false;
 
 	public static EnvConfig from(JsonObject config) {
 		EnvConfig c = new EnvConfig();
@@ -52,6 +55,7 @@ public final class EnvConfig {
 			if (cur.has("opp_reaction_max")) c.oppReactionMax = cur.get("opp_reaction_max").getAsInt();
 			if (cur.has("opp_fight_prob")) c.oppFightProb = cur.get("opp_fight_prob").getAsDouble();
 			if (cur.has("allow_jump")) c.allowJump = cur.get("allow_jump").getAsInt() != 0;
+			if (cur.has("mortal")) c.mortal = cur.get("mortal").getAsInt() != 0;
 		}
 		return c;
 	}
