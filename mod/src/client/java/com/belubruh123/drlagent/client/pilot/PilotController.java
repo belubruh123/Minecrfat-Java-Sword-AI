@@ -63,13 +63,13 @@ public final class PilotController {
 
 	/** Fight stats for the HUD panel and /pilot status. Hits are counted when
 	 * the server confirms them (target hurtTime jump), same as lastReach; the
-	 * combo rules mirror training (Arena.stepCombo): hits <= 40 ticks apart
+	 * combo rules mirror training (Arena.stepCombo): hits <= 30 ticks apart
 	 * with nothing taken in between chain, a chain of 2+ is a combo. */
 	public record Stats(int hits, int sprintHits, int crits, int chain,
 			int bestChain, int combos, int taken) {
 	}
 
-	private static final int STAT_CHAIN_WINDOW = 40;
+	private static final int STAT_CHAIN_WINDOW = 30;
 	private int statHits;
 	private int statSprintHits;
 	private int statCrits;

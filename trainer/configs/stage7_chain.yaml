@@ -1,0 +1,45 @@
+# Stage 7: chain cadence fine-tune. Same environment as stage 6, but the
+# combo definition is tightened to what the user actually means: hit, then
+# hit again the moment the cooldown refills (CHAIN_WINDOW 40 -> 30 ticks),
+# never taking a hit in between, with every chained hit now outpaying a crit
+# (CHAIN_BONUS 0.25 -> 0.35), and getting knocked out of a live combo paying
+# an extra chain-depth-scaled penalty (CHAIN_BREAK_PENALTY 0.2/link — protect
+# the chain, don't trade it). Full warm start from the shipped fighter.pt —
+# the 36-way actor shape matches, so the whole learned policy carries over
+# and just re-optimizes for the stricter cadence.
+# Run from trainer/: python train.py configs/stage7_chain.yaml --run stage7_chain
+stage: fighter
+seed: 7
+total_steps: 2_000_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../models/aim.pt
+swing_checkpoint: ../models/swing.pt
+init_checkpoint: ../models/fighter.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 400
+  lock_ticks: 3         # unused by the fighter stage
+  opponent: human
+  opp_reaction_min: 3   # 150 ms
+  opp_reaction_max: 7   # 350 ms
+  opp_fight_prob: 0.2
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.002
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

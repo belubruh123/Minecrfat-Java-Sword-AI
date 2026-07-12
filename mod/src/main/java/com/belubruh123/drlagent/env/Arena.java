@@ -67,16 +67,25 @@ public final class Arena {
 	// exploring the sprint bit mid-air voids crits (the crit gate requires
 	// !isSprinting), so at 0.35 the bonus lost to the crit's 0.5 everywhere
 	// and sprint stalled at ~1/ep. The two apply in disjoint states (grounded
-	// vs airborne), so both skills survive. The window is sized so a
-	// sprint-chase after knockback (~6 blocks + 12.5-tick cooldown) still chains.
-	private static final int CHAIN_WINDOW = 40;
-	private static final float CHAIN_BONUS = 0.25f;
-	// The user's target metric is the combo — hits landed without being hit
-	// in between — so the chain bonus escalates deep: the 9th consecutive
-	// clean hit earns +2.0 on top of its base pay. Taking a hit both breaks
-	// the chain and costs HIT_TAKEN_PENALTY, so vs the humanized opponent
-	// (where avoidance is actually possible) clean aggression dominates.
+	// vs airborne), so both skills survive. The window enforces the combo's
+	// cadence — hit again the moment the 12.5-tick cooldown refills, with only
+	// the knockback-chase (~15 ticks of sprint) in between. 30 ticks fits one
+	// clean chase; it does NOT fit a whiffed cycle plus a re-approach, which a
+	// looser window (the old 40) wrongly credited as still comboing.
+	private static final int CHAIN_WINDOW = 30;
+	private static final float CHAIN_BONUS = 0.35f;
+	// The user's target metric is the combo — hits landed on cooldown without
+	// being hit in between — so every chained hit must outpay a crit: at 0.35
+	// the 2nd clean hit already matches the crit bonus and the 9th earns +2.8
+	// on top of its base pay. Taking a hit both breaks the chain and costs
+	// HIT_TAKEN_PENALTY, so vs the humanized opponent (where avoidance is
+	// actually possible) protecting a live chain by spacing/strafing is worth
+	// more than any single trade.
 	private static final int CHAIN_CAP = 8;
+	// Getting knocked out of a LIVE combo pays extra, scaled like the bonus:
+	// losing a 5-chain costs 0.75 + 0.8, a neutral trade just 0.75. The deeper
+	// the chain, the more disengaging (S-tap, strafe out) beats trading.
+	private static final float CHAIN_BREAK_PENALTY = 0.2f;
 	private static final float CRIT_BONUS_SCALE = 0.35f;
 	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
@@ -604,6 +613,9 @@ public final class Arena {
 		agentHurtTimeBefore = agent.hurtTime;
 		if (freshHitTaken) {
 			reward -= HIT_TAKEN_PENALTY;
+			if (!takenSinceLastHit && episodeTick - lastHitTick <= CHAIN_WINDOW) {
+				reward -= CHAIN_BREAK_PENALTY * Math.min(comboChain - 1, CHAIN_CAP);
+			}
 			takenSinceLastHit = true;
 		}
 		// took off this tick (was grounded, jump held, now airborne)
