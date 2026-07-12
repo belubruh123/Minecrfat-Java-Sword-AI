@@ -52,8 +52,9 @@ What you need on the machine you play Minecraft on:
    to Fabric API, like any other mod.
 2. **This repo's `trainer/` and `models/` folders** — anywhere on disk, plus
    the backend setup above. `models/` ships the trained weights
-   (`aim.pt`, `swing.pt`, `move.pt`, and `combo.pt` once stage 5 finishes) —
-   you never need to train.
+   (`aim.pt`, `swing.pt`, `move.pt`, `combo.pt`, `fighter.pt` — the pilot
+   picks the newest-generation movement model automatically) — you never
+   need to train.
 
 Then, each time you play:
 

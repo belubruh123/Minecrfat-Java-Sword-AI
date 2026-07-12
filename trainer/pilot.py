@@ -208,7 +208,8 @@ def serve_connection(conn, aim, swing, move, shape, smooth=True, humanize=True):
 
 def main():
     ap = argparse.ArgumentParser()
-    default_move = MODELS / ("combo.pt" if (MODELS / "combo.pt").exists() else "move.pt")
+    default_move = next((MODELS / n for n in ("fighter.pt", "combo.pt", "move.pt")
+                         if (MODELS / n).exists()), MODELS / "move.pt")
     ap.add_argument("--aim", default=str(MODELS / "aim.pt"))
     ap.add_argument("--swing", default=str(MODELS / "swing.pt"))
     ap.add_argument("--move", default=str(default_move),
