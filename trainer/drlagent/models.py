@@ -124,3 +124,18 @@ class FighterPolicy(SwingPolicy):
     def decode(a):
         """action index -> (move, strafe, jump, sprint) arrays."""
         return a % 3, (a // 3) % 3, (a // 9) % 2, (a // 18) % 2
+
+
+class Fighter2Policy(FighterPolicy):
+    """FighterPolicy plus the attack button: 72-way mixed radix with
+    attack = index // 36. Hit timing and range judgment become part of the
+    learned policy — the frozen stage-3 swing net never saw knockback-world
+    ranges and spams swings at targets it cannot reach. Trunk warm-starts
+    from any earlier movement checkpoint (only this actor differs)."""
+
+    N_ACTIONS = 72
+
+    @staticmethod
+    def decode(a):
+        """action index -> (move, strafe, jump, sprint, attack) arrays."""
+        return a % 3, (a // 3) % 3, (a // 9) % 2, (a // 18) % 2, (a // 36) % 2

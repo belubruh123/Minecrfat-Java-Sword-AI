@@ -1,20 +1,21 @@
-# Stage 7a: COMBO SCHOOL. The user's order: "let it learn combo first" —
-# so the opponent strafes but NEVER attacks, and jumping is disabled
-# entirely. With no counter-pressure, the only rewards on the table are the
-# combo loop itself: hit at full charge, chase the knockback (pursuit
-# shaping pays for closing while the chain is live), hit again the moment
-# the 12.5-tick cooldown refills (30-tick window), never let the window
-# lapse (drop penalty). Warm starts from fighter.pt so aim/approach carry
-# over; stage 7b then re-introduces the fighting opponent.
-# Run from trainer/: python train.py configs/stage7a_comboschool.yaml --run stage7a_comboschool
-stage: fighter
-seed: 71
-total_steps: 1_500_000
+# Stage 7a v2: COMBO SCHOOL with the fighter2 head — the policy now owns
+# the ATTACK button (72-way: move x strafe x jump x sprint x attack). The
+# frozen stage-3 swing net was trained before knockback existed and spams
+# swings at ranges it cannot reach (~1 whiff per hit); hit timing and range
+# judgment are now learned WITH movement. Opponent: passive (human movement
+# + real hitstun, approaches at full speed + sprint, never attacks), so the
+# only reward source is the real combo loop: close in, hit at full charge,
+# chase the launch, hit again the moment the cooldown refills. Trunk
+# warm-starts from the completed 36-way school run (its encoder already
+# knows knockback-world visuals); the actor head is fresh.
+# Run from trainer/: python train.py configs/stage7a_comboschool.yaml --run stage7a_school2
+stage: fighter2
+seed: 73
+total_steps: 2_000_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../models/aim.pt
-swing_checkpoint: ../models/swing.pt
-init_checkpoint: ../models/fighter.pt
+init_checkpoint: ../runs/stage7a_comboschool/final.pt
 
 curriculum:
   horizontal_prob: 1.0
@@ -23,8 +24,8 @@ curriculum:
   dist_max: 10.0
   yaw_range: 90.0
   episode_ticks: 400
-  lock_ticks: 3         # unused by the fighter stage
-  opponent: passive     # human movement + real hitstun, never attacks
+  lock_ticks: 3         # unused by the fighter stages
+  opponent: passive     # chases at full speed + sprint, never attacks
   allow_jump: 0
 
 ppo:

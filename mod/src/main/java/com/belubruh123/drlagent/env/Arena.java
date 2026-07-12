@@ -47,7 +47,10 @@ public final class Arena {
 	// Swing-stage rewards: a landed hit pays the attack-cooldown charge at the
 	// moment of the swing (full charge = +1), any swing that fails to damage
 	// (out of reach, occluded, or inside the invulnerability window) is a whiff.
-	private static final float WHIFF_PENALTY = 0.3f;
+	// Whiffs burn the 12.5-tick cooldown — inside a combo that IS the combo
+	// dying. 0.6 (was 0.3): now that the fighter2 head owns the attack
+	// button, missed swings are a choice, and range judgment must be learned.
+	private static final float WHIFF_PENALTY = 0.6f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -92,7 +95,9 @@ public final class Arena {
 	// letting the window lapse without the follow-up hit is punished like a
 	// break — running away to "find a safer opening" is never free.
 	private static final float PURSUIT_SHAPING = 0.15f;
-	private static final float CHAIN_DROP_PENALTY = 0.1f;
+	// The target is a chain on essentially EVERY hit: letting the window
+	// lapse costs a good chunk of what continuing it would have paid.
+	private static final float CHAIN_DROP_PENALTY = 0.25f;
 	private static final float CRIT_BONUS_SCALE = 0.35f;
 	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
@@ -381,6 +386,7 @@ public final class Arena {
 			oppWasDisrupted = true;
 			opponent.zza = 0;
 			opponent.xxa = 0;
+			opponent.setSprinting(false);
 			return;
 		}
 		if (oppWasDisrupted) {
@@ -402,7 +408,10 @@ public final class Arena {
 		}
 		opponent.xxa = 0.98f * strafeDir;
 		double dist = opponent.distanceTo(agent);
-		opponent.zza = dist > 3.0 ? 0.7f : (dist < 2.0 ? -0.5f : 0.0f);
+		// a real opponent comes AT you: full forward, sprinting while far —
+		// the agent's combos have to work against someone closing the gap
+		opponent.zza = dist > 3.0 ? 1.0f : (dist < 2.0 ? -0.5f : 0.0f);
+		opponent.setSprinting(dist > 4.0 && opponent.onGround());
 
 		if (!canAttack) {
 			return;

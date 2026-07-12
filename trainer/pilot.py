@@ -23,8 +23,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from drlagent.models import (AimPolicy, ComboPolicy, FighterPolicy, MovePolicy,
-                             SwingPolicy)
+from drlagent.models import (AimPolicy, ComboPolicy, Fighter2Policy,
+                             FighterPolicy, MovePolicy, SwingPolicy)
 from drlagent.vec_env import MAX_TURN_DEG, MinecraftVecEnv
 
 TYPE_JSON, TYPE_ACTION, TYPE_OBS = 0, 1, 2
@@ -107,8 +107,8 @@ def load_policy(cls, path: str | None, name: str):
         return None, None
     ckpt = torch.load(p, map_location="cpu", weights_only=False)
     if cls is None:  # movement head: the checkpoint's stage picks the class
-        cls = {"combo": ComboPolicy, "fighter": FighterPolicy}.get(
-            ckpt.get("stage"), MovePolicy)
+        cls = {"combo": ComboPolicy, "fighter": FighterPolicy,
+               "fighter2": Fighter2Policy}.get(ckpt.get("stage"), MovePolicy)
     net = cls(*ckpt["obs_shape"])
     net.load_state_dict(ckpt["policy"])
     net.eval()
@@ -182,7 +182,12 @@ def serve_connection(conn, aim, swing, move, shape, smooth=True, humanize=True):
                 attack = int(swing.act(tm, ts)[0].item())
             if move is not None:
                 a = int(move.act(tm, ts)[0].item())
-                if isinstance(move, FighterPolicy):
+                if isinstance(move, Fighter2Policy):
+                    mv, strafe, jump, sprint, attack = (
+                        int(x) for x in Fighter2Policy.decode(a))
+                    if not getattr(move, "allow_jump", True):
+                        jump = 0
+                elif isinstance(move, FighterPolicy):
                     mv, strafe, jump, sprint = (int(x) for x in FighterPolicy.decode(a))
                     if not getattr(move, "allow_jump", True):
                         jump = 0
@@ -214,7 +219,7 @@ def serve_connection(conn, aim, swing, move, shape, smooth=True, humanize=True):
 
 def main():
     ap = argparse.ArgumentParser()
-    default_move = next((MODELS / n for n in ("fighter.pt", "combo.pt", "move.pt")
+    default_move = next((MODELS / n for n in ("fighter2.pt", "fighter.pt", "combo.pt", "move.pt")
                          if (MODELS / n).exists()), MODELS / "move.pt")
     ap.add_argument("--aim", default=str(MODELS / "aim.pt"))
     ap.add_argument("--swing", default=str(MODELS / "swing.pt"))

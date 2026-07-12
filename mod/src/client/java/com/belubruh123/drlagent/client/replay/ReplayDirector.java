@@ -8,6 +8,7 @@ import com.mojang.authlib.GameProfile;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -50,6 +51,11 @@ public final class ReplayDirector {
 	private int[] infos;
 	private String episodeName;
 	private int tick;
+	/** Smoothed display camera (the recorded aim is bang-bang). */
+	private float camYaw;
+	private float camPitch;
+	private float prevRawYaw;
+	private float prevRawPitch;
 	private RemotePlayer dummy;
 	private final AtomicReference<JsonObject> fetched = new AtomicReference<>();
 	private Thread worker;
@@ -154,13 +160,29 @@ public final class ReplayDirector {
 		float[] t = telemetry[tick];
 		int inf = infos[tick];
 
-		// camera = the agent's recorded eyes
+		// camera = the agent's recorded eyes. The recorded aim is bang-bang
+		// (the net slams the ±15°/tick clamp and alternates), which is
+		// nauseating to watch — smooth the DISPLAYED camera with a two-tap
+		// average (cancels tick alternation) + light low-pass, mirroring the
+		// pilot's AimSmoother. Positions and the fight itself stay raw.
 		mc.player.getAbilities().flying = true;
 		mc.player.setDeltaMovement(Vec3.ZERO);
 		mc.player.setPos(ARENA_X + t[0], FLOOR_Y + t[2], ARENA_Z + t[1]);
-		mc.player.setYRot(t[3]);
-		mc.player.setYHeadRot(t[3]);
-		mc.player.setXRot(t[7]);
+		if (tick == 0) {
+			camYaw = t[3];
+			camPitch = t[7];
+			prevRawYaw = t[3];
+			prevRawPitch = t[7];
+		}
+		float midYaw = prevRawYaw + 0.5f * Mth.wrapDegrees(t[3] - prevRawYaw);
+		float midPitch = 0.5f * (prevRawPitch + t[7]);
+		prevRawYaw = t[3];
+		prevRawPitch = t[7];
+		camYaw += 0.5f * Mth.wrapDegrees(midYaw - camYaw);
+		camPitch += 0.5f * (midPitch - camPitch);
+		mc.player.setYRot(camYaw);
+		mc.player.setYHeadRot(camYaw);
+		mc.player.setXRot(camPitch);
 		if (t[9] > 0.5f) {
 			mc.player.swing(InteractionHand.MAIN_HAND);
 		}
