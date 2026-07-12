@@ -24,7 +24,10 @@ loom {
 			client()
 			configName = "Pilot Client"
 			runDir "run/pilot-client"
-			programArgs "--username", "PilotTester", "--quickPlayMultiplayer", "localhost:25565"
+			// small window: this client doubles as the headless replay theater
+			// on the training box, where llvmpipe pays per pixel
+			programArgs "--username", "PilotTester", "--quickPlayMultiplayer", "localhost:25565",
+					"--width", "640", "--height", "360"
 			vmArgs "-Xmx1280M"
 		}
 	}

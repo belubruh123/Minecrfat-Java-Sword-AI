@@ -66,7 +66,12 @@
 
 <div class="layout">
   <section class="panel">
-    <h2 id="view3dTitle" style="display:none">Reconstructed 3D view
+    <h2 id="liveTitle" style="display:none">Live Minecraft render
+      <span class="muted" style="text-transform:none; letter-spacing:0">
+        — a real game client re-enacting the newest episode</span></h2>
+    <img id="liveView" alt="" style="width:100%; display:none; border-radius:6px;
+         background:#000; aspect-ratio:16/9">
+    <h2 id="view3dTitle" style="display:none; margin-top:12px">Reconstructed 3D view
       <span class="muted" style="text-transform:none; letter-spacing:0">
         — rendered from replay telemetry (the server is headless)</span></h2>
     <canvas id="view3d" width="212" height="120"
@@ -535,6 +540,28 @@ async function boot() {
   tickPlayer();
   setInterval(refreshMetrics, 5000);
   setInterval(() => { if ($("follow").classList.contains("active")) loadLatest(); }, 4000);
+  liveLoop();
+}
+
+// live Minecraft render: poll /api/live (404 = theater offline -> hide panel)
+async function liveLoop() {
+  const img = $("liveView"), title = $("liveTitle");
+  let failures = 0;
+  setInterval(async () => {
+    try {
+      const r = await fetch("/api/live", {cache: "no-store"});
+      if (!r.ok) throw new Error();
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const old = img.src;
+      img.src = url;
+      if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+      img.style.display = "block"; title.style.display = "block";
+      failures = 0;
+    } catch {
+      if (++failures > 3) { img.style.display = "none"; title.style.display = "none"; }
+    }
+  }, 150);
 }
 boot().catch(e => { $("status").textContent = "error: " + e.message; });
 </script>

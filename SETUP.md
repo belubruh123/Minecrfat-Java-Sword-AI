@@ -114,8 +114,16 @@ cd trainer
   `--resume ../runs/<run>/latest.pt`.
 - Watch training: replay dashboard
   `../.venv/bin/python dashboard/app.py` → http://localhost:8080 (replays
-  arena 0 at real speed, exactly what the agent sees), and TensorBoard
+  arena 0 at real speed: the agent's mask view, a reconstructed 3D view,
+  and a top-down tactical map), and TensorBoard
   `../.venv/bin/tensorboard --logdir ../runs`.
+- Real Minecraft rendering: `scripts/start_theater.sh [run]` boots a
+  headless game client that re-enacts the newest recorded episodes on the
+  arena (camera rides the agent, the opponent is a real player model) and
+  streams its screen into the dashboard's "Live Minecraft render" panel.
+  Costs about a CPU core — `scripts/start_theater.sh stop` when not
+  watching. The `/replay follow <run>` command also works on your own
+  client (`/replay api <url>` points it at a remote dashboard).
 
 Evaluate a checkpoint (stop the trainer first — the bridge is single-client):
 

@@ -9,10 +9,13 @@ import net.minecraft.client.KeyMapping;
 
 public class DrlAgentModClient implements ClientModInitializer {
 	public static final PilotController PILOT = new PilotController();
+	public static final com.belubruh123.drlagent.client.replay.ReplayDirector REPLAY =
+			new com.belubruh123.drlagent.client.replay.ReplayDirector();
 
 	@Override
 	public void onInitializeClient() {
 		PilotCommand.register();
+		ReplayCommand.register();
 		PilotHud.register();
 		KeyMapping toggle = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 				"key.drlagent.pilot_toggle", InputConstants.Type.KEYSYM,
@@ -23,6 +26,9 @@ public class DrlAgentModClient implements ClientModInitializer {
 			}
 			PILOT.startTick(mc);
 		});
-		ClientTickEvents.END_CLIENT_TICK.register(PILOT::endTick);
+		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+			PILOT.endTick(mc);
+			REPLAY.tick(mc);
+		});
 	}
 }

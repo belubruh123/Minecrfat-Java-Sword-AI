@@ -80,7 +80,7 @@ def episodes(run: str):
 
 
 @app.get("/api/run/{run}/episode/{name}")
-def episode(run: str, name: str):
+def episode(run: str, name: str, light: int = 0):
     if not name.replace("_", "").isalnum():
         raise HTTPException(400, "bad name")
     f = _run_dir(run) / "episodes" / f"{name}.npz"
@@ -90,12 +90,28 @@ def episode(run: str, name: str):
     out = {
         "shape": z["shape"].tolist(),
         "fps": 20,
-        "frames": [base64.b64encode(row.tobytes()).decode() for row in z["masks"]],
         "actions": z["actions"].tolist(),
         "rewards": z["rewards"].tolist(),
         "infos": z["infos"].tolist(),
-        "scalars": np.round(z["scalars"].astype(float), 3).tolist(),
     }
+    if not light:  # the replay theater only needs telemetry + infos
+        out["frames"] = [base64.b64encode(row.tobytes()).decode() for row in z["masks"]]
+        out["scalars"] = np.round(z["scalars"].astype(float), 3).tolist()
     if "telemetry" in z:  # older recordings predate the top-down view
         out["telemetry"] = np.round(z["telemetry"].astype(float), 3).tolist()
     return JSONResponse(out)
+
+
+LIVE_JPG = RUNS_DIR / "live.jpg"
+
+
+@app.get("/api/live")
+def live():
+    """Latest frame of the replay-theater client (ffmpeg keeps overwriting
+    runs/live.jpg). 404 when the theater is not running or the frame is
+    stale, so the page can hide the panel."""
+    import time
+    if not LIVE_JPG.exists() or time.time() - LIVE_JPG.stat().st_mtime > 5:
+        raise HTTPException(404, "no live frame")
+    return FileResponse(LIVE_JPG, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
