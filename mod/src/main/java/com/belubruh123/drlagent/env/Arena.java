@@ -48,9 +48,12 @@ public final class Arena {
 	// moment of the swing (full charge = +1), any swing that fails to damage
 	// (out of reach, occluded, or inside the invulnerability window) is a whiff.
 	// Whiffs burn the 12.5-tick cooldown — inside a combo that IS the combo
-	// dying. 0.6 (was 0.3): now that the fighter2 head owns the attack
-	// button, missed swings are a choice, and range judgment must be learned.
-	private static final float WHIFF_PENALTY = 0.6f;
+	// dying. The user's target is <5 whiffs/ep: at 1.0 a speculative click
+	// only pays if the hit is likelier than not, so the policy must actually
+	// judge range and charge before pressing. The fighter2 head owns the
+	// attack button, so missed swings are its own choice. (Was 0.3 while the
+	// frozen swing net clicked; 0.6 briefly.)
+	private static final float WHIFF_PENALTY = 1.0f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
