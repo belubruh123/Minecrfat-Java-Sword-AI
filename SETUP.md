@@ -51,10 +51,10 @@ What you need on the machine you play Minecraft on:
    `cd mod && ./gradlew build`). Drop it in your Minecraft `mods/` folder next
    to Fabric API, like any other mod.
 2. **This repo's `trainer/` and `models/` folders** — anywhere on disk, plus
-   the backend setup above. `models/` ships the trained weights
-   (`aim.pt`, `swing.pt`, `move.pt`, `combo.pt`, `fighter.pt` — the pilot
-   picks the newest-generation movement model automatically) — you never
-   need to train.
+   the backend setup above. `models/` ships the trained weights — the pilot
+   automatically picks the newest generation it finds
+   (`fighter2.pt` > `fighter.pt` > `combo.pt` > `move.pt`, plus `aim.pt`
+   and `swing.pt`) — you never need to train.
 
 Then, each time you play:
 
@@ -82,8 +82,8 @@ are never locked out of your own character.
 
 `pilot.py` options: `--aim/--swing/--move` point at other checkpoints
 (omitting one disables that head — useful for testing aim only), `--port`
-changes the listen port. It prefers `models/combo.pt` over `models/move.pt`
-automatically when both exist. Human-natural output is on by default:
+changes the listen port. It prefers the newest movement generation automatically
+(`fighter2.pt` first). Human-natural output is on by default:
 aim smoothing (the raw policy is accurate but visibly shaky) and input
 humanizing (keys held at human timescales, clicks jittered and capped at
 human rates instead of 20 frame-perfect decisions per second).
@@ -107,10 +107,13 @@ cd trainer
 ```
 
 - Stages build on each other: `stage1_aim` → `stage2_vertical` →
-  `stage3_swing` → `stage4_move` → `stage5_combo`. Each config names the
-  frozen earlier checkpoints (`aim_checkpoint`, `swing_checkpoint`), so
-  train them in order — or just reuse the shipped `models/*.pt` and only
-  train the stage you care about.
+  `stage3_swing` → `stage4_move` → `stage5_combo` → `stage6_fighter` →
+  `aim_smooth` (smooth-aim fine-tune) → `stage7a_comboschool` →
+  `stage7b_chain` (mortal duels). Each config names the checkpoints it
+  builds on (`aim_checkpoint`, `init_checkpoint`), so train them in order —
+  or just reuse the shipped `models/*.pt` and only train the stage you
+  care about. The `fighter2` stages own the attack button themselves and
+  need no `swing_checkpoint`.
 - Interrupt any time; resume with
   `--resume ../runs/<run>/latest.pt`.
 - Watch training: replay dashboard
@@ -129,13 +132,14 @@ cd trainer
 Evaluate a checkpoint (stop the trainer first — the bridge is single-client):
 
 ```bash
-../.venv/bin/python eval.py ../runs/stage5_combo/final.pt --episodes 100 \
-    --curriculum configs/stage5_combo.yaml \
-    --aim ../models/aim.pt --swing ../models/swing.pt --stochastic
+../.venv/bin/python eval.py ../runs/stage7b_chain/final.pt --episodes 100 \
+    --curriculum configs/stage7b_chain.yaml \
+    --aim ../models/aim.pt --stochastic
 ```
 
 To make the pilot use a model you trained, copy it into `models/`
-(e.g. `cp runs/stage5_combo/final.pt models/combo.pt`) and restart `pilot.py`.
+(e.g. `cp runs/stage7b_chain/final.pt models/fighter2.pt`) and restart
+`pilot.py`.
 
 ## Ports (all localhost-only)
 
