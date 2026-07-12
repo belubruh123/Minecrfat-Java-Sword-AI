@@ -209,10 +209,14 @@ public final class PilotController {
 		obsPending = false;
 		lateActions = 0;
 
-		player.setYRot(Mth.wrapDegrees(player.getYRot()
-				+ Mth.clamp(a.dyaw(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK)));
-		player.setXRot(Mth.clamp(player.getXRot()
-				+ Mth.clamp(a.dpitch(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK), -90, 90));
+		// sub-degree deadzone mirrors Arena.applyAction: the policy trained
+		// with "hold still" available, so the pilot must honor it too
+		float dyaw = Mth.clamp(a.dyaw(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		float dpitch = Mth.clamp(a.dpitch(), -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		if (Math.abs(dyaw) < 0.5f) dyaw = 0;
+		if (Math.abs(dpitch) < 0.5f) dpitch = 0;
+		player.setYRot(Mth.wrapDegrees(player.getYRot() + dyaw));
+		player.setXRot(Mth.clamp(player.getXRot() + dpitch, -90, 90));
 		wantMove = a.move();
 		wantStrafe = a.strafe();
 		wantJump = a.jump();

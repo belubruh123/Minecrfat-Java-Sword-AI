@@ -46,6 +46,10 @@ public final class Arena {
 	// First attempt penalized |dyaw| while on target and lock success fell
 	// 96%->73% by 250k — it was punishing correct pursuit.
 	private static final float AIM_JERK_COST = 0.2f;
+	// Sub-degree aim commands snap to zero: the policy gets a true "hold the
+	// mouse still" action (a Gaussian head can never output exact 0), so
+	// once aimed it can REST instead of drift-and-correct forever.
+	private static final float AIM_DEADZONE = 0.5f;
 	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
 	// outpays the lock bonus and the policy farms it by never completing a lock.
 	private static final int MAX_PAID_ON_TARGET = 10;
@@ -338,6 +342,8 @@ public final class Arena {
 
 		float newDyaw = Mth.clamp(dyaw, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
 		float newDpitch = Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		if (Math.abs(newDyaw) < AIM_DEADZONE) newDyaw = 0;
+		if (Math.abs(newDpitch) < AIM_DEADZONE) newDpitch = 0;
 		aimJerk = (Math.abs(newDyaw - lastDyaw) + Math.abs(newDpitch - lastDpitch))
 				/ (2 * MAX_TURN_PER_TICK);
 		lastDyaw = newDyaw;
