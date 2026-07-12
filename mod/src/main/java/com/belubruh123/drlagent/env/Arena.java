@@ -38,6 +38,13 @@ public final class Arena {
 
 	// Stage-1 aim reward constants
 	private static final float ON_TARGET_REWARD = 0.3f;
+	// Smooth-aim fine-tune: while ALREADY on target, big corrections cost —
+	// at full rate (15°/tick) the cost eats half the on-target pay, a 1°
+	// micro-correction costs ~0.01. Off-target flicks stay free: speed toward
+	// the target is right, thrashing on it is not. Kills the bang-bang
+	// alternation ("aim abusing") that shakes the camera and only tracks a
+	// single perfect point.
+	private static final float AIM_JITTER_COST = 0.15f;
 	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
 	// outpays the lock bonus and the policy farms it by never completing a lock.
 	private static final int MAX_PAID_ON_TARGET = 10;
@@ -62,6 +69,10 @@ public final class Arena {
 	// target vulnerable) and the policy does not press costs this much —
 	// hesitating 5 ticks burns 0.4, nearly half a hit's base pay.
 	private static final float HESITATION_PENALTY = 0.08f;
+	// Held strafe costs a trickle: an A-tap into a hit (3-4 ticks) is
+	// pennies, orbiting the opponent all episode is ruinous. Only an aimbot
+	// can fight while circling — combos should run mostly straight lines.
+	private static final float STRAFE_COST = 0.015f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -163,6 +174,11 @@ public final class Arena {
 	private double chasePhiBefore;
 	/** This tick, a swing would have landed but the policy did not press. */
 	private boolean missedOpening;
+	/** Clamped aim command applied this tick (for the smooth-aim cost). */
+	private float lastDyaw;
+	private float lastDpitch;
+	/** A strafe key was held this tick (for the orbit cost). */
+	private boolean strafeHeld;
 	/** Humanized opponent state: true = this episode uses the perfect bot. */
 	private boolean oppPerfectEpisode;
 	private int oppReactTicks;
@@ -314,13 +330,16 @@ public final class Arena {
 		agent.setOldPosAndRot();
 		opponent.setOldPosAndRot();
 
-		agent.setYRot(Mth.wrapDegrees(agent.getYRot() + Mth.clamp(dyaw, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK)));
+		lastDyaw = Mth.clamp(dyaw, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		lastDpitch = Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		agent.setYRot(Mth.wrapDegrees(agent.getYRot() + lastDyaw));
 		agent.setYHeadRot(agent.getYRot());
-		agent.setXRot(Mth.clamp(agent.getXRot() + Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK), -90, 90));
+		agent.setXRot(Mth.clamp(agent.getXRot() + lastDpitch, -90, 90));
 
 		// move: 0 none, 1 = W, 2 = S; strafe: 0 none, 1 = A (left), 2 = D (right)
 		agent.zza = move == 1 ? 1.0f : (move == 2 ? -1.0f : 0.0f);
 		agent.xxa = strafe == 1 ? 1.0f : (strafe == 2 ? -1.0f : 0.0f);
+		strafeHeld = strafe != 0;
 		// vanilla can only sprint while moving forward; a sprinting attack gets
 		// bonus knockback but is barred from critting (Player.attack)
 		agent.setSprinting(move == 1 && sprint);
@@ -556,6 +575,10 @@ public final class Arena {
 				paidOnTargetTicks++;
 			}
 			consecOnTarget++;
+			// already on target: thrashing the mouse costs, micro-corrections
+			// are near-free — hold steady instead of bang-bang re-centering
+			reward -= AIM_JITTER_COST
+					* (Math.abs(lastDyaw) + Math.abs(lastDpitch)) / MAX_TURN_PER_TICK;
 		} else {
 			consecOnTarget = 0;
 		}
@@ -696,6 +719,10 @@ public final class Arena {
 		// cooldown done + in range = swing NOW; every hesitating tick bleeds
 		if (missedOpening) {
 			reward -= HESITATION_PENALTY;
+		}
+		// orbiting costs; strafe taps stay cheap
+		if (strafeHeld) {
+			reward -= STRAFE_COST;
 		}
 		// pursue while the combo is live: closing toward reach pays, backing
 		// off charges, and a window lapsing without its follow-up hit drops
