@@ -520,7 +520,7 @@ public final class Arena {
 		if ("move".equals(cfg.stage)) {
 			return stepMove();
 		}
-		if ("combo".equals(cfg.stage) || "fighter".equals(cfg.stage)) {
+		if ("combo".equals(cfg.stage) || cfg.stage.startsWith("fighter")) {
 			return stepCombo(); // fighter shares the combo reward structure
 		}
 
