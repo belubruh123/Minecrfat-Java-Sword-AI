@@ -56,6 +56,21 @@ public final class ArenaManager {
 		}
 	}
 
+	/** Parks every arena when a trainer detaches: the level keeps ticking the
+	 * fake players at 20 tps between sessions, so leftover movement inputs
+	 * make them wander, fall off and accumulate state that leaks into the
+	 * next session's numbers (observed: eval results depended on what ran
+	 * on the boot before them). A plain reset zeroes inputs and re-places
+	 * everyone at spawn, making sessions order-independent. */
+	public void parkAll() {
+		if (!initialized) {
+			return;
+		}
+		for (Arena arena : arenas) {
+			arena.reset();
+		}
+	}
+
 	public List<Arena> getArenas() {
 		return arenas;
 	}

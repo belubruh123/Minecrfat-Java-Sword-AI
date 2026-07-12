@@ -126,7 +126,7 @@ def main() -> None:
     stats = stats[: args.episodes]
     rets = [s["return"] for s in stats]
     print(f"checkpoint: {args.checkpoint} (trained {ckpt['step']} steps)")
-    print(f"episodes:   {len(stats)}")
+    print(f"episodes:   {len(stats)}   mean length {np.mean([s['length'] for s in stats]):.0f} ticks")
     if ckpt_stage in ("swing", "move", "combo", "fighter"):
         hits = [s["hits"] for s in stats]
         whiffs = [s["whiffs"] for s in stats]

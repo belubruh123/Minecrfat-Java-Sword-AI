@@ -116,7 +116,8 @@ public final class EnvSession {
 		current = null;
 		primed = false;
 		server.tickRateManager().setTickRate(20.0f);
-		DrlAgentMod.LOGGER.info("Training session detached; tick rate restored to 20");
+		arenas.parkAll();
+		DrlAgentMod.LOGGER.info("Training session detached; arenas parked, tick rate restored to 20");
 	}
 
 	private void maybeApplyNewConfig() {
