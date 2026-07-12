@@ -30,6 +30,30 @@ TYPE_JSON, TYPE_ACTION, TYPE_OBS = 0, 1, 2
 MODELS = Path(__file__).resolve().parent.parent / "models"
 
 
+class AimSmoother:
+    """The aim net is saturated bang-bang control: it slams the ±15°/tick
+    clamp and flips direction ~72% of ticks — dead-on target on average, but
+    on screen it shakes unnaturally. A two-tap average cancels perfect
+    tick-to-tick alternation exactly (the tracking component passes with one
+    tick of lag), a light low-pass eats the residue, and a rate cap keeps
+    flicks at human mouse speeds."""
+
+    MAX_RATE = 11.0  # deg/tick output cap (vanilla clamp is 15)
+
+    def __init__(self, alpha: float = 0.5):
+        self.alpha = alpha
+        self.prev_cmd = np.zeros(2)
+        self.state = np.zeros(2)
+
+    def __call__(self, dyaw: float, dpitch: float) -> tuple[float, float]:
+        cmd = np.array([dyaw, dpitch])
+        two_tap = 0.5 * (cmd + self.prev_cmd)
+        self.prev_cmd = cmd
+        self.state += self.alpha * (two_tap - self.state)
+        out = np.clip(self.state, -self.MAX_RATE, self.MAX_RATE)
+        return float(out[0]), float(out[1])
+
+
 def load_policy(cls, path: str | None, name: str):
     if not path:
         print(f"{name}: disabled (no checkpoint)")
@@ -69,8 +93,9 @@ def send_frame(f, ftype, payload):
     f.flush()
 
 
-def serve_connection(conn, aim, swing, move, shape):
+def serve_connection(conn, aim, swing, move, shape, smooth=True):
     stack, h, w, n_scalars = shape
+    smoother = AimSmoother() if smooth else None
     f = conn.makefile("rwb")
     hello = json.loads(read_frame(f, TYPE_JSON))
     width, height = hello["width"], hello["height"]
@@ -117,6 +142,8 @@ def serve_connection(conn, aim, swing, move, shape):
                     mv, sprint = a, a
         dyaw = float(np.clip(aim_a[0, 0].item(), -1, 1)) * MAX_TURN_DEG
         dpitch = float(np.clip(aim_a[0, 1].item(), -1, 1)) * MAX_TURN_DEG
+        if smoother is not None:
+            dyaw, dpitch = smoother(dyaw, dpitch)
 
         send_frame(f, TYPE_ACTION, struct.pack(">ffBBBBB", dyaw, dpitch, attack,
                                                mv, strafe, jump, sprint))
@@ -140,6 +167,8 @@ def main():
     ap.add_argument("--move", default=str(default_move),
                     help="movement checkpoint: a move- or combo-stage .pt")
     ap.add_argument("--port", type=int, default=36566)
+    ap.add_argument("--raw-aim", action="store_true",
+                    help="disable aim smoothing (the raw policy shakes)")
     args = ap.parse_args()
 
     torch.set_num_threads(2)
@@ -156,7 +185,8 @@ def main():
         conn, addr = srv.accept()
         conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
-            serve_connection(conn, aim, swing, move, shape)
+            serve_connection(conn, aim, swing, move, shape,
+                             smooth=not args.raw_aim)
         except (ConnectionError, OSError) as e:
             print(f"client disconnected: {e}")
         finally:
