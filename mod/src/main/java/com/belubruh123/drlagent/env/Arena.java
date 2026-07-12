@@ -38,13 +38,14 @@ public final class Arena {
 
 	// Stage-1 aim reward constants
 	private static final float ON_TARGET_REWARD = 0.3f;
-	// Smooth-aim fine-tune: while ALREADY on target, big corrections cost —
-	// at full rate (15°/tick) the cost eats half the on-target pay, a 1°
-	// micro-correction costs ~0.01. Off-target flicks stay free: speed toward
-	// the target is right, thrashing on it is not. Kills the bang-bang
-	// alternation ("aim abusing") that shakes the camera and only tracks a
-	// single perfect point.
-	private static final float AIM_JITTER_COST = 0.15f;
+	// Smooth-aim fine-tune: the cost is on JERK — the tick-to-tick CHANGE in
+	// the aim command — not on turn magnitude. Tracking a moving target
+	// correctly needs sustained turning (smooth pursuit ~ the target's
+	// angular speed), which is jerk-free; bang-bang alternation (±15° flips,
+	// the camera shake) pays the full cost every tick; a flick pays once.
+	// First attempt penalized |dyaw| while on target and lock success fell
+	// 96%->73% by 250k — it was punishing correct pursuit.
+	private static final float AIM_JERK_COST = 0.2f;
 	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
 	// outpays the lock bonus and the policy farms it by never completing a lock.
 	private static final int MAX_PAID_ON_TARGET = 10;
@@ -177,6 +178,8 @@ public final class Arena {
 	/** Clamped aim command applied this tick (for the smooth-aim cost). */
 	private float lastDyaw;
 	private float lastDpitch;
+	/** Normalized tick-to-tick change of the aim command, in [0, 1]. */
+	private float aimJerk;
 	/** A strafe key was held this tick (for the orbit cost). */
 	private boolean strafeHeld;
 	/** Humanized opponent state: true = this episode uses the perfect bot. */
@@ -255,6 +258,9 @@ public final class Arena {
 		lastHitTick = -CHAIN_WINDOW - 1;
 		takenSinceLastHit = false;
 		chasePhiBefore = 0;
+		lastDyaw = 0;
+		lastDpitch = 0;
+		aimJerk = 0;
 
 		boolean horizontal = rng.nextDouble() < cfg.horizontalProb || cfg.maxElev <= 0;
 		elevatedEpisode = !horizontal;
@@ -330,8 +336,12 @@ public final class Arena {
 		agent.setOldPosAndRot();
 		opponent.setOldPosAndRot();
 
-		lastDyaw = Mth.clamp(dyaw, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
-		lastDpitch = Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		float newDyaw = Mth.clamp(dyaw, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		float newDpitch = Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
+		aimJerk = (Math.abs(newDyaw - lastDyaw) + Math.abs(newDpitch - lastDpitch))
+				/ (2 * MAX_TURN_PER_TICK);
+		lastDyaw = newDyaw;
+		lastDpitch = newDpitch;
 		agent.setYRot(Mth.wrapDegrees(agent.getYRot() + lastDyaw));
 		agent.setYHeadRot(agent.getYRot());
 		agent.setXRot(Mth.clamp(agent.getXRot() + lastDpitch, -90, 90));
@@ -575,13 +585,12 @@ public final class Arena {
 				paidOnTargetTicks++;
 			}
 			consecOnTarget++;
-			// already on target: thrashing the mouse costs, micro-corrections
-			// are near-free — hold steady instead of bang-bang re-centering
-			reward -= AIM_JITTER_COST
-					* (Math.abs(lastDyaw) + Math.abs(lastDpitch)) / MAX_TURN_PER_TICK;
 		} else {
 			consecOnTarget = 0;
 		}
+		// jerk cost: smooth pursuit is free, bang-bang alternation pays
+		// two-thirds of the on-target reward every tick, a flick pays once
+		reward -= AIM_JERK_COST * aimJerk;
 		reward -= TIME_PENALTY;
 		prevAngErr = angErr;
 
