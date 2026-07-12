@@ -54,6 +54,11 @@ public final class Arena {
 	// attack button, so missed swings are its own choice. (Was 0.3 while the
 	// frozen swing net clicked; 0.6 briefly.)
 	private static final float WHIFF_PENALTY = 1.0f;
+	// The user's rule: cooldown done + in range = swing NOW. Every tick where
+	// a swing would land (full charge, crosshair on the target within reach,
+	// target vulnerable) and the policy does not press costs this much —
+	// hesitating 5 ticks burns 0.4, nearly half a hit's base pay.
+	private static final float HESITATION_PENALTY = 0.08f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -153,6 +158,8 @@ public final class Arena {
 	private boolean takenSinceLastHit;
 	/** Previous tick's pursuit potential: -(distance beyond reach). */
 	private double chasePhiBefore;
+	/** This tick, a swing would have landed but the policy did not press. */
+	private boolean missedOpening;
 	/** Humanized opponent state: true = this episode uses the perfect bot. */
 	private boolean oppPerfectEpisode;
 	private int oppReactTicks;
@@ -318,6 +325,17 @@ public final class Arena {
 		agent.setJumping(jumpIn);
 		jumpHeld = jumpIn;
 		preTickOnGround = agent.onGround();
+
+		// hesitation check BEFORE the swing consumes the charge: would a
+		// swing land right now? (same raycast + gates as the real attack)
+		missedOpening = false;
+		if (!attack && agent.getAttackStrengthScale(0.5f) > 0.9f) {
+			Vec3 hEye = agent.getEyePosition();
+			Vec3 hEnd = hEye.add(agent.getViewVector(1.0f).scale(agent.entityInteractionRange()));
+			Optional<Vec3> hHit = opponent.getBoundingBox().clip(hEye, hEnd);
+			missedOpening = hHit.isPresent() && !blockedByBlocks(hEye, hHit.get())
+					&& opponent.invulnerableTime <= 10;
+		}
 
 		if (attack) {
 			// 26.1: swing() itself resets the attack ticker (even air swings),
@@ -674,6 +692,10 @@ public final class Arena {
 				reward -= CHAIN_BREAK_PENALTY * Math.min(comboChain - 1, CHAIN_CAP);
 			}
 			takenSinceLastHit = true;
+		}
+		// cooldown done + in range = swing NOW; every hesitating tick bleeds
+		if (missedOpening) {
+			reward -= HESITATION_PENALTY;
 		}
 		// pursue while the combo is live: closing toward reach pays, backing
 		// off charges, and a window lapsing without its follow-up hit drops
