@@ -302,6 +302,9 @@ class PPOTrainer:
             "step": self.global_step,
             "cfg": self.cfg,
             "stage": self.stage,
+            # no-jump curriculum: the pilot must suppress the jump bit for
+            # models whose jump input was a training-time no-op
+            "allow_jump": bool(getattr(self.env, "curriculum", {}).get("allow_jump", 1)),
             "obs_shape": [self.env.stack, self.env.h, self.env.w,
                           self.env.n_scalars],
         }, self.run_dir / f"{name}.pt")

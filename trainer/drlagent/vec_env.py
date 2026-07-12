@@ -37,6 +37,7 @@ class MinecraftVecEnv:
                  record_dir: str | None = None, record_arena: int = 0,
                  max_recorded_episodes: int = 30):
         self.conn = BridgeConnection(host=host, port=port)
+        self.curriculum = dict(curriculum)
         self.conn.configure(stage=stage, curriculum=curriculum, seed=seed,
                             record_arena=record_arena)
         self.n = self.conn.hello.arenas

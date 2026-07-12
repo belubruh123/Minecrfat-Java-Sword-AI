@@ -86,6 +86,13 @@ public final class Arena {
 	// losing a 5-chain costs 0.75 + 0.8, a neutral trade just 0.75. The deeper
 	// the chain, the more disengaging (S-tap, strafe out) beats trading.
 	private static final float CHAIN_BREAK_PENALTY = 0.2f;
+	// After a hit the ONLY correct plan is to close and hit again the moment
+	// the cooldown refills. While the combo is live, closing toward reach pays
+	// and retreating charges (potential on distance beyond 2.8 blocks), and
+	// letting the window lapse without the follow-up hit is punished like a
+	// break — running away to "find a safer opening" is never free.
+	private static final float PURSUIT_SHAPING = 0.15f;
+	private static final float CHAIN_DROP_PENALTY = 0.1f;
 	private static final float CRIT_BONUS_SCALE = 0.35f;
 	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
@@ -136,6 +143,8 @@ public final class Arena {
 	private int comboChain;
 	private int lastHitTick;
 	private boolean takenSinceLastHit;
+	/** Previous tick's pursuit potential: -(distance beyond reach). */
+	private double chasePhiBefore;
 	/** Humanized opponent state: true = this episode uses the perfect bot. */
 	private boolean oppPerfectEpisode;
 	private int oppReactTicks;
@@ -211,6 +220,7 @@ public final class Arena {
 		comboChain = 0;
 		lastHitTick = -CHAIN_WINDOW - 1;
 		takenSinceLastHit = false;
+		chasePhiBefore = 0;
 
 		boolean horizontal = rng.nextDouble() < cfg.horizontalProb || cfg.maxElev <= 0;
 		elevatedEpisode = !horizontal;
@@ -296,8 +306,9 @@ public final class Arena {
 		// vanilla can only sprint while moving forward; a sprinting attack gets
 		// bonus knockback but is barred from critting (Player.attack)
 		agent.setSprinting(move == 1 && sprint);
-		agent.setJumping(jump);
-		jumpHeld = jump;
+		boolean jumpIn = jump && cfg.allowJump;
+		agent.setJumping(jumpIn);
+		jumpHeld = jumpIn;
 		preTickOnGround = agent.onGround();
 
 		if (attack) {
@@ -617,6 +628,20 @@ public final class Arena {
 				reward -= CHAIN_BREAK_PENALTY * Math.min(comboChain - 1, CHAIN_CAP);
 			}
 			takenSinceLastHit = true;
+		}
+		// pursue while the combo is live: closing toward reach pays, backing
+		// off charges, and a window lapsing without its follow-up hit drops
+		// the combo for a depth-scaled penalty (fires once, on the lapse tick)
+		boolean chainLive = comboChain >= 1 && !takenSinceLastHit
+				&& episodeTick - lastHitTick <= CHAIN_WINDOW;
+		double chasePhi = -Math.max(0.0, agent.distanceTo(opponent) - 2.8);
+		if (chainLive) {
+			reward += (float) (PURSUIT_SHAPING * (chasePhi - chasePhiBefore));
+		}
+		chasePhiBefore = chasePhi;
+		if (comboChain >= 1 && !takenSinceLastHit
+				&& episodeTick - lastHitTick == CHAIN_WINDOW + 1) {
+			reward -= CHAIN_DROP_PENALTY * Math.min(comboChain, CHAIN_CAP);
 		}
 		// took off this tick (was grounded, jump held, now airborne)
 		if (jumpHeld && preTickOnGround && !agent.onGround()) {

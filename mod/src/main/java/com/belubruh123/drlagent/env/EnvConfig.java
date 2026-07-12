@@ -26,6 +26,9 @@ public final class EnvConfig {
 	/** With opponent "human": probability an episode uses the perfect
 	 * "fight" bot instead (rehearsal so the policy keeps a worst-case answer). */
 	public double oppFightProb = 0.0;
+	/** 0 makes the agent's jump input a no-op (no-jump curriculum: grounded
+	 * combos only; no crits, which require falling). */
+	public boolean allowJump = true;
 
 	public static EnvConfig from(JsonObject config) {
 		EnvConfig c = new EnvConfig();
@@ -48,6 +51,7 @@ public final class EnvConfig {
 			if (cur.has("opp_reaction_min")) c.oppReactionMin = cur.get("opp_reaction_min").getAsInt();
 			if (cur.has("opp_reaction_max")) c.oppReactionMax = cur.get("opp_reaction_max").getAsInt();
 			if (cur.has("opp_fight_prob")) c.oppFightProb = cur.get("opp_fight_prob").getAsDouble();
+			if (cur.has("allow_jump")) c.allowJump = cur.get("allow_jump").getAsInt() != 0;
 		}
 		return c;
 	}

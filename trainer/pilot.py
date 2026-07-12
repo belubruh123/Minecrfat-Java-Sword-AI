@@ -113,7 +113,11 @@ def load_policy(cls, path: str | None, name: str):
     net.load_state_dict(ckpt["policy"])
     net.eval()
     net.requires_grad_(False)
-    print(f"{name}: {p} ({ckpt['step']} steps, stage {ckpt.get('stage', '?')})")
+    # models trained with jump as a no-op have arbitrary jump-bit logits —
+    # the pilot must suppress the key or it would leap around meaninglessly
+    net.allow_jump = bool(ckpt.get("allow_jump", True))
+    print(f"{name}: {p} ({ckpt['step']} steps, stage {ckpt.get('stage', '?')}"
+          f"{'' if net.allow_jump else ', no-jump'})")
     return net, ckpt["obs_shape"]
 
 
@@ -180,6 +184,8 @@ def serve_connection(conn, aim, swing, move, shape, smooth=True, humanize=True):
                 a = int(move.act(tm, ts)[0].item())
                 if isinstance(move, FighterPolicy):
                     mv, strafe, jump, sprint = (int(x) for x in FighterPolicy.decode(a))
+                    if not getattr(move, "allow_jump", True):
+                        jump = 0
                 elif isinstance(move, ComboPolicy):
                     mv, jump, sprint = a & 1, (a >> 1) & 1, (a >> 2) & 1
                 else:  # move stage trained with W implying sprint
