@@ -53,6 +53,18 @@
          font-size: 12px; color: var(--text); display: none; z-index: 10;
          font-variant-numeric: tabular-nums; }
   .muted { color: var(--text-3); }
+  #pipe { margin-bottom: 14px; }
+  .pipeRow { display: flex; align-items: center; gap: 10px; padding: 5px 0;
+             font-variant-numeric: tabular-nums; }
+  .pipeRow .nm { flex: 0 0 min(46%, 420px); }
+  .pipeBar { flex: 1; height: 8px; background: var(--border);
+             border-radius: 4px; overflow: hidden; min-width: 70px; }
+  .pipeBar i { display: block; height: 100%; border-radius: 4px;
+               transition: width .8s linear; }
+  .pipeRow .eta { flex: 0 0 200px; text-align: right; color: var(--text-2);
+                  font-size: 12px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+         flex: 0 0 8px; }
 </style>
 </head>
 <body>
@@ -63,6 +75,12 @@
   <button id="follow" class="active" title="auto-play newest episode">follow latest</button>
   <span id="status" class="muted">connecting…</span>
 </header>
+
+<section class="panel" id="pipe" style="display:none">
+  <h2>Training pipeline
+    <span class="muted" id="pipeTotal" style="text-transform:none; letter-spacing:0"></span></h2>
+  <div id="pipeRows"></div>
+</section>
 
 <div class="layout">
   <section class="panel">
@@ -564,6 +582,61 @@ async function liveLoop() {
   }, 150);
 }
 boot().catch(e => { $("status").textContent = "error: " + e.message; });
+
+// training pipeline: the server does the ETA math every 5 s; between
+// fetches the bars and countdowns advance locally at the reported sps
+(() => {
+  let data = null, fetchedAt = 0;
+  const fmt = s => {
+    s = Math.max(0, Math.round(s));
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    if (h) return `${h}h ${String(m).padStart(2, "0")}m`;
+    return m ? `${m}m ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
+  };
+  const render = () => {
+    if (!data) return;
+    $("pipe").style.display = "";
+    const gone = (Date.now() - fetchedAt) / 1000;
+    let total = 0;
+    $("pipeRows").innerHTML = data.stages.map(st => {
+      const run = st.status === "running" && !st.stalled;
+      let eta = st.eta_s == null ? null : Math.max(0, st.eta_s - (run ? gone : 0));
+      if (st.status !== "done" && eta != null) total += eta;
+      const liveStep = run && st.sps
+          ? Math.min(st.total_steps, (st.step || 0) + st.sps * gone) : st.step;
+      const pct = st.status === "done" ? 100
+          : st.status === "running" && st.total_steps
+            ? Math.min(100, 100 * (liveStep || 0) / st.total_steps) : 0;
+      const col = st.status === "done" ? "var(--good)"
+          : st.stalled ? "var(--bad)"
+          : st.status === "running" ? "var(--series)" : "var(--text-3)";
+      const stats = st.stats && st.status === "running"
+          ? " · " + Object.entries(st.stats).slice(0, 3)
+              .map(([k, v]) => `${k.replace("ep_", "")} ${v}`).join(" · ") : "";
+      const right = st.status === "done" ? "done ✓"
+          : st.stalled ? "⚠ no progress — check the trainer"
+          : st.status === "running"
+            ? `${pct.toFixed(1)}% · ${st.sps} sps · ~${fmt(eta)} left`
+          : eta != null ? `queued · est ~${fmt(eta)}` : "queued";
+      return `<div class="pipeRow"><span class="dot" style="background:${col}"></span>
+        <span class="nm">${st.name}<span class="muted" style="font-size:11px">${stats}</span></span>
+        <span class="pipeBar"><i style="width:${pct}%; background:${col}"></i></span>
+        <span class="eta">${right}</span></div>`;
+    }).join("");
+    $("pipeTotal").textContent =
+        total > 0 ? ` — bot ready in ~${fmt(total)}` : " — complete";
+  };
+  const load = async () => {
+    try {
+      const r = await fetch("/api/progress");
+      if (r.ok) { data = await r.json(); fetchedAt = Date.now(); }
+    } catch { /* keep last data */ }
+    render();
+  };
+  setInterval(render, 1000);
+  setInterval(load, 5000);
+  load();
+})();
 </script>
 </body>
 </html>

@@ -102,6 +102,56 @@ def episode(run: str, name: str, light: int = 0):
     return JSONResponse(out)
 
 
+LADDER = RUNS_DIR / "ladder.json"
+
+
+@app.get("/api/progress")
+def progress():
+    """Training pipeline with real-time ETA math. runs/ladder.json names the
+    stages (maintained by the training orchestration); live step counts,
+    sps and headline stats come from each run's metrics.jsonl."""
+    import time
+    if not LADDER.exists():
+        raise HTTPException(404, "no ladder")
+    ladder = json.loads(LADDER.read_text())
+    now = time.time()
+    ref_sps = 200.0  # queued-stage estimate until a live rate is known
+    stages = []
+    for st in ladder.get("stages", []):
+        row = dict(st)
+        f = (RUNS_DIR / st["run"] / "metrics.jsonl") if st.get("run") else None
+        if f is not None and f.exists():
+            recs = [json.loads(x) for x in
+                    f.read_text().strip().splitlines()[-12:] if x]
+            recs = [r for r in recs if "step" in r]
+            if recs:
+                last = recs[-1]
+                sps = float(np.mean([r["sps"] for r in recs if r.get("sps")]))
+                row["step"] = last["step"]
+                row["sps"] = round(sps, 1)
+                row["age_s"] = round(now - f.stat().st_mtime)
+                row["stats"] = {k: round(float(v), 2) for k, v in last.items()
+                                if k in ("success", "ep_hits", "ep_whiffs",
+                                         "ep_chain_hits", "ep_hits_taken",
+                                         "ep_return")}
+                if last["step"] >= st.get("total_steps", 1):
+                    row["status"] = "done"
+                elif row.get("status") == "running":
+                    row["stalled"] = row["age_s"] > 180
+                    if sps > 0:
+                        ref_sps = sps
+                        row["eta_s"] = (st["total_steps"] - last["step"]) / sps
+        stages.append(row)
+    total = 0.0
+    for row in stages:
+        if row.get("status") == "queued" and "eta_s" not in row:
+            row["eta_s"] = (row["fixed_minutes"] * 60 if row.get("fixed_minutes")
+                            else row.get("total_steps", 0) / ref_sps)
+        if row.get("status") in ("running", "queued"):
+            total += row.get("eta_s", 0)
+    return {"now": now, "total_eta_s": round(total), "stages": stages}
+
+
 LIVE_JPG = RUNS_DIR / "live.jpg"
 
 
