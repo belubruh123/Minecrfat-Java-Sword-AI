@@ -94,6 +94,11 @@ public final class Arena {
 	private static final float KILL_REWARD = 5.0f;
 	private static final float DEATH_PENALTY = 5.0f;
 	private static final float MORTAL_TICK_COST = 0.02f;
+	// Hovering out of reach must bleed, or kiting at constant radius is a
+	// near-free equilibrium (potential-based pursuit pays nothing when the
+	// distance is not CHANGING). Position cost, not potential: per tick,
+	// scaled by blocks beyond sword range, capped at 4 blocks.
+	private static final float FAR_COST = 0.01f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -820,6 +825,8 @@ public final class Arena {
 		boolean agentDead = false;
 		if (cfg.mortal) {
 			reward -= MORTAL_TICK_COST;
+			reward -= (float) (FAR_COST
+					* Math.min(4.0, Math.max(0.0, agent.distanceTo(opponent) - 3.0)));
 			// real fight: health persists (vanilla food regen only), the
 			// duel ends when someone drops
 			opponentDead = opponent.getHealth() <= 0;

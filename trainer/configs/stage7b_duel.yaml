@@ -1,0 +1,42 @@
+# Duel phase ii: SLOW OPPONENT. The killer from phase i meets a sword that
+# swings back — but with sluggish reactions (400-700 ms), so aggression
+# keeps winning clearly and the fear spiral has nothing to feed on while
+# the policy learns to fight under fire. High entropy keeps exploration
+# alive through the risky transition.
+# Run from trainer/: python train.py configs/stage7b_duel.yaml --run stage7b_duel
+stage: fighter2
+seed: 76
+total_steps: 500_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../models/aim.pt
+init_checkpoint: ../runs/stage7b_kill/final.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 1200
+  lock_ticks: 3
+  opponent: human
+  opp_reaction_min: 8   # 400 ms
+  opp_reaction_max: 14  # 700 ms
+  opp_fight_prob: 0.0
+  allow_jump: 0
+  mortal: 1
+
+ppo:
+  lr: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

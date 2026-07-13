@@ -1,20 +1,14 @@
-# Stage 7b: combos under fire. Warm starts from the 7a combo school
-# (fighter2 head: the policy owns the attack button) and re-introduces the
-# humanized opponent that actually swings back (20% perfect-bot rehearsal).
-# The opponent chases at full speed + sprint. Combo economics carry over:
-# 30-tick on-cooldown window, chain bonus 0.35/link, pursuit shaping while
-# the chain is live, drop penalty 0.25/link for letting the window lapse,
-# break penalty 0.2/link for being knocked out of a live combo, whiff 0.6,
-# jumping disabled. The job: keep the school's chains alive against someone
-# hitting back — protect the chain with spacing/strafe instead of trading.
+# Duel phase iii: FULL OPPONENT. Human reactions (150-350 ms) + 10%
+# perfect-bot rehearsal, warm from phase ii. By now killing under fire is
+# the anchored behavior; this phase sharpens it against the real thing.
 # Run from trainer/: python train.py configs/stage7b_chain.yaml --run stage7b_chain
 stage: fighter2
-seed: 74
-total_steps: 2_000_000
+seed: 77
+total_steps: 1_200_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../models/aim.pt
-init_checkpoint: ../runs/stage7a_school2/final.pt
+init_checkpoint: ../runs/stage7b_duel/final.pt
 
 curriculum:
   horizontal_prob: 1.0
@@ -39,7 +33,7 @@ ppo:
   num_minibatches: 2
   update_epochs: 2
   clip_coef: 0.2
-  ent_coef: 0.006
+  ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
   reward_scale: 1.0
