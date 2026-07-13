@@ -135,7 +135,7 @@ const css = name => getComputedStyle(document.documentElement).getPropertyValue(
 const CHARTS = [
   {key: "ep_return", title: "Episode return", fmt: v => v.toFixed(2)},
   {key: "success",   title: "Lock success rate", fmt: v => (100 * v).toFixed(0) + "%"},
-  {key: "ep_len",    title: "Ticks to lock (episode length)", fmt: v => v.toFixed(0)},
+  {key: "ep_len",    title: "Ticks to lock (episode length)", fmt: v => v.toFixed(0), lowerBetter: true},
   {key: "sps",       title: "Training steps / s", fmt: v => v.toFixed(0)},
   {key: "eval_success_h", title: "Eval: horizontal aim (guarded skill)",
    fmt: v => (100 * v).toFixed(0) + "%", optional: true},
@@ -144,9 +144,9 @@ const CHARTS = [
   {key: "ep_hits",   title: "Hits / episode (swing)", fmt: v => v.toFixed(1),
    optional: true},
   {key: "ep_whiffs", title: "Whiffs / episode (swing)", fmt: v => v.toFixed(1),
-   optional: true},
+   optional: true, lowerBetter: true},
   {key: "ep_hits_taken", title: "Hits taken / episode (move)", fmt: v => v.toFixed(1),
-   optional: true},
+   optional: true, lowerBetter: true},
   {key: "ep_chain_hits", title: "Combo hits / episode (chained, clean)",
    fmt: v => v.toFixed(1), optional: true},
   {key: "ep_sprint_hits", title: "Sprint hits / episode", fmt: v => v.toFixed(1),
@@ -155,12 +155,33 @@ const CHARTS = [
    optional: true},
 ];
 
+// Headline = the BEST value this run reached, not the raw last point. A run
+// that entropy-drifts/collapses at the end would otherwise make the card read
+// 0 even though the shipped model (best-return checkpoint) is fine. Smooth
+// with a 5-point trailing mean first so a single lucky/unlucky batch can't set
+// the headline; then take the max (or min for lower-is-better metrics).
+function bestHeadline(pts, spec) {
+  if (!pts.length) return "–";
+  const ys = pts.map(p => p[1]), w = 5;
+  const sm = ys.map((_, i) => {
+    const a = ys.slice(Math.max(0, i - w + 1), i + 1);
+    return a.reduce((s, v) => s + v, 0) / a.length;
+  });
+  return spec.fmt(spec.lowerBetter ? Math.min(...sm) : Math.max(...sm));
+}
+
 function drawChart(host, pts, spec) {
   const W = 320, H = 120, padL = 6, padR = 6, padT = 18, padB = 6;
   host.innerHTML = "";
   const head = document.createElement("div");
-  head.innerHTML = `<h2>${spec.title}</h2><span class="val">${
-      pts.length ? spec.fmt(pts[pts.length - 1][1]) : "–"}</span>`;
+  const last = pts.length ? spec.fmt(pts[pts.length - 1][1]) : "–";
+  const best = bestHeadline(pts, spec);
+  // headline = peak; append "now X" small only when the current value differs
+  head.innerHTML = `<h2>${spec.title}</h2><span class="val">${best}` +
+      (pts.length
+        ? `<span style="opacity:.5;font-weight:400;font-size:12px"> peak${
+            last !== best ? ` · now ${last}` : ""}</span>`
+        : "") + `</span>`;
   host.appendChild(head);
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
