@@ -134,7 +134,15 @@ public final class Arena {
 	// lapse costs a good chunk of what continuing it would have paid.
 	private static final float CHAIN_DROP_PENALTY = 0.25f;
 	private static final float CRIT_BONUS_SCALE = 0.35f;
-	private static final float SPRINT_HIT_BONUS_SCALE = 0.6f;
+	// A sprint hit pays DOUBLE a plain hit: without it the policy discovers
+	// crowding — stand inside the target, skip the sprint knockback so the
+	// victim never leaves reach, and farm plain hits at perfect cadence
+	// (observed: sprint hits slid 10.5 -> 7/ep as it optimized the school).
+	private static final float SPRINT_HIT_BONUS_SCALE = 1.0f;
+	// Standing closer than a sword-fight ever needs also costs directly:
+	// vs a real opponent, chest-to-chest is where you get hit back.
+	private static final double CROWD_DIST = 1.6;
+	private static final float CROWD_COST = 0.03f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
 	// to a crit (net +0.3), so the policy stops hopping around aimlessly.
 	private static final float JUMP_COST = 0.05f;
@@ -756,6 +764,10 @@ public final class Arena {
 		// by the hits it enables.
 		if (strafeHeld && isCrosshairOnTarget()) {
 			reward -= STRAFE_COST;
+		}
+		// chest-to-chest is not a sword fight
+		if (agent.distanceTo(opponent) < CROWD_DIST) {
+			reward -= CROWD_COST;
 		}
 		// pursue while the combo is live: closing toward reach pays, backing
 		// off charges, and a window lapsing without its follow-up hit drops
