@@ -17,6 +17,9 @@ total_steps: 800_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../models/aim.pt
+# Training from zero? Comment out init_checkpoint — it resumes OUR school
+# lineage; a fresh fighter trains fine from scratch, just a bit longer
+# (raise total_steps to ~2_000_000).
 init_checkpoint: ../runs/stage7a_school2_v1/latest.pt
 
 curriculum:
