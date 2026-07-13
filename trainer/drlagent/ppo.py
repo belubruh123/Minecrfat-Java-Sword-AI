@@ -90,6 +90,12 @@ class PPOTrainer:
         self.writer = SummaryWriter(str(run_dir / "tb"))
         self.metrics_file = (run_dir / "metrics.jsonl").open("a")
 
+        # return-based best checkpoint: converged policies self-destruct if
+        # trained past their plateau (advantages vanish, the entropy bonus
+        # slowly randomizes the actor) — the peak artifact must survive that
+        self._ret_hist: list[float] = []
+        self._best_ret = float("-inf")
+
         self.rollout_len = cfg["rollout_len"]
         n = env.n
         t = self.rollout_len
@@ -309,6 +315,14 @@ class PPOTrainer:
         for k, v in summary.items():
             if k not in ("step", "episodes"):
                 self.writer.add_scalar(k, v, self.global_step)
+        r = summary.get("ep_return")
+        if r is not None:
+            self._ret_hist.append(float(r))
+            if len(self._ret_hist) >= 3:
+                m = float(np.mean(self._ret_hist[-5:]))
+                if m > self._best_ret:
+                    self._best_ret = m
+                    self.save("best")
         self.metrics_file.write(json.dumps(summary) + "\n")
         self.metrics_file.flush()
         return summary

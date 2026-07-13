@@ -10,7 +10,7 @@ total_steps: 500_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../models/aim.pt
-init_checkpoint: ../runs/stage7b_kill/final.pt
+init_checkpoint: ../runs/stage7a_school2/final.pt
 
 curriculum:
   horizontal_prob: 1.0
@@ -35,7 +35,7 @@ ppo:
   num_minibatches: 2
   update_epochs: 2
   clip_coef: 0.2
-  ent_coef: 0.004
+  ent_coef: 0.002
   vf_coef: 0.5
   max_grad_norm: 0.5
   reward_scale: 1.0
