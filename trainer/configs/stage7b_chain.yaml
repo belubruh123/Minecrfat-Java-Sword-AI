@@ -27,7 +27,7 @@ curriculum:
   opponent: human
   opp_reaction_min: 3   # 150 ms
   opp_reaction_max: 7   # 350 ms
-  opp_fight_prob: 0.2
+  opp_fight_prob: 0.1
   allow_jump: 0
   mortal: 1             # real hearts: kill ends the episode (+5), dying -5
 
@@ -39,7 +39,7 @@ ppo:
   num_minibatches: 2
   update_epochs: 2
   clip_coef: 0.2
-  ent_coef: 0.002
+  ent_coef: 0.006
   vf_coef: 0.5
   max_grad_norm: 0.5
   reward_scale: 1.0

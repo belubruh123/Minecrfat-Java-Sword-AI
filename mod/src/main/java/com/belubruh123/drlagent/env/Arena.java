@@ -93,7 +93,7 @@ public final class Arena {
 	// worse than finishing them).
 	private static final float KILL_REWARD = 5.0f;
 	private static final float DEATH_PENALTY = 5.0f;
-	private static final float MORTAL_TICK_COST = 0.01f;
+	private static final float MORTAL_TICK_COST = 0.02f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -786,11 +786,14 @@ public final class Arena {
 		}
 		// pursue while the combo is live: closing toward reach pays, backing
 		// off charges, and a window lapsing without its follow-up hit drops
-		// the combo for a depth-scaled penalty (fires once, on the lapse tick)
+		// the combo for a depth-scaled penalty (fires once, on the lapse tick).
+		// In MORTAL duels the shaping applies at ALL times — the collapsed 7b
+		// run proved that without a dense engage gradient, one bad stretch
+		// teaches permanent kiting (0 hits, 0 taken, 1200-tick timeouts).
 		boolean chainLive = comboChain >= 1 && !takenSinceLastHit
 				&& episodeTick - lastHitTick <= CHAIN_WINDOW;
 		double chasePhi = -Math.max(0.0, agent.distanceTo(opponent) - 2.8);
-		if (chainLive) {
+		if (chainLive || cfg.mortal) {
 			reward += (float) (PURSUIT_SHAPING * (chasePhi - chasePhiBefore));
 		}
 		chasePhiBefore = chasePhi;
