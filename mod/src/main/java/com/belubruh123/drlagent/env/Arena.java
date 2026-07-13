@@ -749,8 +749,12 @@ public final class Arena {
 		if (missedOpening) {
 			reward -= HESITATION_PENALTY;
 		}
-		// orbiting costs; strafe taps stay cheap
-		if (strafeHeld) {
+		// Strafing while the crosshair already sits on the target is orbiting
+		// and costs. Strafing while it is slightly OFF is the fine-adjust
+		// tool the mouse no longer has (flicks are >=5°): sidestep with A/D
+		// to walk the target back under the crosshair — free, and paid for
+		// by the hits it enables.
+		if (strafeHeld && isCrosshairOnTarget()) {
 			reward -= STRAFE_COST;
 		}
 		// pursue while the combo is live: closing toward reach pays, backing

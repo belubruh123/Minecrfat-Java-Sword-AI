@@ -6,16 +6,18 @@
 # + real hitstun, approaches at full speed + sprint, never attacks), so the
 # only reward source is the real combo loop: close in, hit at full charge,
 # chase the launch, hit again the moment the cooldown refills. Trunk
-# warm-starts from the completed 36-way school run (its encoder already
-# knows knockback-world visuals); the actor head is fresh.
+# continues the converged school run (0.4 whiffs, 92% chains at 1M) as a
+# fine-tune under the new rule: strafe costs ONLY while the crosshair is
+# already on target — off-target A/D sidesteps are the free fine-adjust
+# tool that re-centers without moving the mouse (flicks are >=5°).
 # Run from trainer/: python train.py configs/stage7a_comboschool.yaml --run stage7a_school2
 stage: fighter2
 seed: 73
-total_steps: 2_000_000
+total_steps: 800_000
 downsample: 3
 frame_stack: 4
 aim_checkpoint: ../models/aim.pt
-init_checkpoint: ../runs/stage7a_comboschool/final.pt
+init_checkpoint: ../runs/stage7a_school2_v1/latest.pt
 
 curriculum:
   horizontal_prob: 1.0
