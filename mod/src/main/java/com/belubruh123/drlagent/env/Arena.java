@@ -290,7 +290,9 @@ public final class Arena {
 		comboChain = 0;
 		lastHitTick = -CHAIN_WINDOW - 1;
 		takenSinceLastHit = false;
-		chasePhiBefore = 0;
+		// seeded with the REAL spawn distance below (after the opponent is
+		// placed) — a zero here made every mortal episode start with a
+		// spurious ~-1 pursuit penalty on its first tick
 		lastDyaw = 0;
 		lastDpitch = 0;
 		aimJerk = 0;
@@ -309,6 +311,7 @@ public final class Arena {
 		}
 		float opponentYaw = (float) Mth.wrapDegrees(Math.toDegrees(angle) + 180);
 		place(opponent, ox, oy, oz, opponentYaw, 0);
+		chasePhiBefore = -Math.max(0.0, agent.distanceTo(opponent) - 2.8);
 		// A hovering opponent is a stationary aim dummy; grounded ones use physics.
 		opponent.setNoGravity(!horizontal || "static".equals(cfg.opponent));
 		strafeDir = rng.nextBoolean() ? 1 : -1;
