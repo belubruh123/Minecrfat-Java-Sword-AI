@@ -32,8 +32,9 @@ import java.util.Optional;
  * not.
  */
 public final class PilotController {
-	/** Matches Arena.MAX_TURN_PER_TICK — the trained action space. */
-	private static final float MAX_TURN_PER_TICK = 7.5f;
+	/** Matches Arena.MAX_TURN_PER_TICK — the trained action space (restored to
+	 * the original 15 deg/tick; the 7.5 nerf made the pilot too slow to track). */
+	private static final float MAX_TURN_PER_TICK = 15.0f;
 	private static final double TARGET_RANGE = 48.0;
 	/** ~3 s of inference silence before giving control back. */
 	private static final int MAX_CONSECUTIVE_LATE = 60;

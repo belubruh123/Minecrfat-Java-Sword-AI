@@ -42,12 +42,12 @@ public final class Arena {
 	// behave like an unbounded field: nobody rings out, the combo must actually
 	// kill. 2-block margin keeps the 0.6-wide hitbox fully on the stone.
 	private static final double IN_BOUNDS_RADIUS = PLATFORM_RADIUS - 2;
-	// Half of the original 15: a >=5° flick now spans consecutive ticks
-	// instead of teleporting the camera between two frames — the single-tick
-	// snap was the last inhuman thing about the aim (user: "instant
-	// snapping... SO WEIRD"). With the 5° deadzone the usable per-tick band
-	// is [5, 7.5]; larger corrections are multi-tick sweeps.
-	private static final float MAX_TURN_PER_TICK = 7.5f;
+	// Camera turn cap, restored to the original 15 deg/tick (2x) — the 7.5 nerf
+	// (commit 0d0f489) made the aim too slow to keep up with a moving target.
+	// The net saturates this cap on large corrections, so raising it makes
+	// flicks/tracking 2x faster while sub-deadzone adjustments are unchanged.
+	// Usable per-tick band with the 5 deg deadzone is [5, 15].
+	private static final float MAX_TURN_PER_TICK = 15.0f;
 
 	// Stage-1 aim reward constants
 	private static final float ON_TARGET_REWARD = 0.3f;

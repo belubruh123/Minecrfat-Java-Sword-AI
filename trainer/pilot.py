@@ -39,7 +39,7 @@ class AimSmoother:
     tick of lag), a light low-pass eats the residue, and a rate cap keeps
     flicks at human mouse speeds."""
 
-    MAX_RATE = 7.5  # deg/tick output cap, matches the trained camera speed
+    MAX_RATE = 15.0  # deg/tick output cap (restored to the original 15; 7.5 was too slow to track)
 
     def __init__(self, alpha: float = 0.5):
         self.alpha = alpha
