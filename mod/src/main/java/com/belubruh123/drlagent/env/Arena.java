@@ -88,9 +88,12 @@ public final class Arena {
 	private static final float STRAFE_COST = 0.015f;
 	// Mortal fights (cfg.mortal): the episode IS the duel — winning it pays
 	// like a deep combo, losing it costs the same. Dying must never be the
-	// cheap way out of a bad position.
+	// cheap way out of a bad position, and stalling a duel out must never
+	// be free (the tick cost also makes farming a live victim strictly
+	// worse than finishing them).
 	private static final float KILL_REWARD = 5.0f;
 	private static final float DEATH_PENALTY = 5.0f;
+	private static final float MORTAL_TICK_COST = 0.01f;
 
 	// Move-stage rewards: sword-PvP spacing band (just inside reach), a small
 	// per-tick bonus for holding it plus potential shaping toward it, hits
@@ -397,8 +400,7 @@ public final class Arena {
 		}
 
 		if (attack) {
-			// 26.1: swing() itself resets the attack ticker (even air swings),
-			// so sample the charge before anything else
+			// sample the charge BEFORE attack/swing reset the ticker
 			lastAttackCharge = agent.getAttackStrengthScale(0.5f);
 			// vanilla crit gate at this instant (Player.attack, 26.1 bytecode):
 			// >=90% charge, falling, airborne, dry, unmounted, NOT sprinting
@@ -406,7 +408,11 @@ public final class Arena {
 					&& !agent.onGround() && !agent.onClimbable() && !agent.isInWater()
 					&& !agent.isPassenger() && !agent.isSprinting();
 			boolean sprintCandidate = lastAttackCharge > 0.9f && agent.isSprinting();
-			agent.swing(InteractionHand.MAIN_HAND);
+			// ORDER MATTERS (26.1): attack() computes damage as
+			// 0.2 + charge^2 * 0.8 at CALL time, and swing() resets the
+			// ticker — swinging first made every hit ever landed deal the
+			// 0.2x floor (7 -> ~0.3 through diamond armor). Attack first,
+			// animate after.
 			Vec3 eye = agent.getEyePosition();
 			Vec3 end = eye.add(agent.getViewVector(1.0f).scale(agent.entityInteractionRange()));
 			Optional<Vec3> hit = opponent.getBoundingBox().clip(eye, end);
@@ -427,6 +433,7 @@ public final class Arena {
 					applyPlayerKnockback(agent, opponent, sprintCandidate);
 				}
 			}
+			agent.swing(InteractionHand.MAIN_HAND);
 		}
 
 		if ("strafe".equals(cfg.opponent)) {
@@ -512,10 +519,11 @@ public final class Arena {
 			return;
 		}
 		// no invulnerableTime check: a human can't see the window, so
-		// early swings land into it and do nothing (wasted timing)
-		opponent.swing(InteractionHand.MAIN_HAND);
+		// early swings land into it and do nothing (wasted timing).
+		// attack BEFORE swing: swing resets the ticker and floors the damage.
 		int hurtBefore = agent.hurtTime;
 		opponent.attack(agent);
+		opponent.swing(InteractionHand.MAIN_HAND);
 		if (agent.hurtTime > hurtBefore) {
 			applyPlayerKnockback(opponent, agent, false);
 		}
@@ -535,9 +543,11 @@ public final class Arena {
 		Optional<Vec3> hit = agent.getBoundingBox().clip(eye, end);
 		if (hit.isPresent() && !blockedByBlocks(eye, hit.get())
 				&& agent.invulnerableTime <= 10) {
-			opponent.swing(InteractionHand.MAIN_HAND);
+			// attack BEFORE swing: swing resets the ticker and would floor
+			// the damage at the 0.2x multiplier (26.1 baseDamageScaleFactor)
 			int hurtBefore = agent.hurtTime;
 			opponent.attack(agent);
+			opponent.swing(InteractionHand.MAIN_HAND);
 			if (agent.hurtTime > hurtBefore) {
 				applyPlayerKnockback(opponent, agent, false);
 			}
@@ -806,6 +816,7 @@ public final class Arena {
 		boolean opponentDead = false;
 		boolean agentDead = false;
 		if (cfg.mortal) {
+			reward -= MORTAL_TICK_COST;
 			// real fight: health persists (vanilla food regen only), the
 			// duel ends when someone drops
 			opponentDead = opponent.getHealth() <= 0;
