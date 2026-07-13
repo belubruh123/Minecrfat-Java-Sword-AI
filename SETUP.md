@@ -106,14 +106,14 @@ cd trainer
 ../.venv/bin/python train.py configs/stage5_combo.yaml --run stage5_combo
 ```
 
-- Stages build on each other: `stage1_aim` → `stage2_vertical` →
-  `stage3_swing` → `stage4_move` → `stage5_combo` → `stage6_fighter` →
-  `aim_smooth` (smooth-aim fine-tune) → `stage7a_comboschool` →
-  `stage7b_chain` (mortal duels). Each config names the checkpoints it
-  builds on (`aim_checkpoint`, `init_checkpoint`), so train them in order —
-  or just reuse the shipped `models/*.pt` and only train the stage you
-  care about. The `fighter2` stages own the attack button themselves and
-  need no `swing_checkpoint`.
+- The live curriculum is three configs: `aim_smooth_v4` (smooth
+  half-speed aim) → `stage7a_comboschool` (combo school) →
+  `stage7b_chain` (mortal duels). Each names the checkpoints it builds on
+  (`aim_checkpoint`, `init_checkpoint`); they fine-tune from the shipped
+  `models/*.pt`, so you can retrain any single stage in isolation. The
+  `fighter2` stages own the attack button themselves and need no
+  `swing_checkpoint`. Superseded generations (stage1–6, earlier aim
+  passes) live in `configs/archive/` for reproducibility.
 - Interrupt any time; resume with
   `--resume ../runs/<run>/latest.pt`.
 - Watch training: replay dashboard
