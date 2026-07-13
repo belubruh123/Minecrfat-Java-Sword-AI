@@ -437,6 +437,9 @@ public final class Arena {
 		float newDpitch = Mth.clamp(dpitch, -MAX_TURN_PER_TICK, MAX_TURN_PER_TICK);
 		if (Math.abs(newDyaw) < AIM_DEADZONE) newDyaw = 0;
 		if (Math.abs(newDpitch) < AIM_DEADZONE) newDpitch = 0;
+		// horizontal-only stage: hold pitch level so the eye-level target can
+		// never leave the vertical view (the vertical stage unlocks this).
+		if (cfg.lockPitch) newDpitch = 0;
 		aimJerk = (Math.abs(newDyaw - lastDyaw) + Math.abs(newDpitch - lastDpitch))
 				/ (2 * MAX_TURN_PER_TICK);
 		lastDyaw = newDyaw;

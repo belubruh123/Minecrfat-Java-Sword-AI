@@ -16,6 +16,8 @@ curriculum:
   episode_ticks: 200
   lock_ticks: 3
   opponent: static
+  lock_pitch: 0          # unlock pitch here: elevated targets need it, and the
+                         # 30% eye-level rehearsal keeps horizontal aim sharp
 
 curriculum_manager:      # anti-forgetting eval guard
   eval_every: 50_000

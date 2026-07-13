@@ -1,56 +1,33 @@
 {
   "stages": [
     {
-      "name": "Smooth aim v3 — flick-or-hold doctrine",
-      "run": "aim_smooth",
-      "total_steps": 1500000,
-      "status": "done"
+      "name": "Aim — horizontal, from scratch (15 deg/tick, near+far)",
+      "run": "fz_aim",
+      "total_steps": 3000000,
+      "status": "running"
     },
     {
-      "name": "Hand-off: no-shake gate, rebuild, ship aim.pt",
-      "fixed_minutes": 10,
-      "status": "done"
+      "name": "Aim — vertical + elevation (keeps horizontal rehearsal)",
+      "run": "fz_aim_vert",
+      "total_steps": 4000000,
+      "status": "queued"
     },
     {
-      "name": "Smooth aim v4 — half camera speed (7.5°/tick)",
-      "run": "aim_smooth_v4",
-      "total_steps": 800000,
-      "status": "done"
+      "name": "Combo school — the fighter learns to combo vs a walker",
+      "run": "fz_combo",
+      "total_steps": 2000000,
+      "status": "queued"
     },
     {
-      "name": "Combo school — strafe-centering fine-tune",
-      "run": "stage7a_school2",
-      "total_steps": 800000,
-      "status": "done"
+      "name": "PvP — mortal fight vs a full-speed opponent (best-checkpointed)",
+      "run": "fz_fight",
+      "total_steps": 150000,
+      "status": "queued"
     },
     {
-      "name": "Duel ii: slow opponent — proven fighter (13 combo hits, 95x dmg)",
-      "run": "stage7b_duel",
-      "total_steps": 500000,
-      "status": "done"
-    },
-    {
-      "name": "Aim retrain — neck target (SHIPPED: +1.9deg at fight range)",
-      "run": "aim_neck",
-      "total_steps": 400000,
-      "status": "done"
-    },
-    {
-      "name": "Combo confirmed working (31 hits); aim/spacing explored — juggle kept per user",
-      "run": "stage7a_school2",
-      "total_steps": 800000,
-      "status": "done"
-    },
-    {
-      "name": "Fight: full-speed mortal opponent — SHIPPED (81% hit, 4.47x dmg ratio, 9.8 combo)",
-      "run": "stage7b_chain",
-      "total_steps": 1200000,
-      "status": "done"
-    },
-    {
-      "name": "Shipped models/fighter2.pt (pilot auto-uses it) + aim.pt",
-      "fixed_minutes": 30,
-      "status": "done"
+      "name": "Auto-ships models/aim.pt + models/fighter2.pt",
+      "fixed_minutes": 5,
+      "status": "queued"
     }
   ]
 }

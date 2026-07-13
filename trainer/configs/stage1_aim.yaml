@@ -14,6 +14,9 @@ curriculum:
   episode_ticks: 200
   lock_ticks: 3
   opponent: static
+  lock_pitch: 1          # horizontal stage: hold pitch level so a fresh policy
+                         # can't look up and lose the eye-level target (the
+                         # vertical stage unlocks it). Prevents wasted training.
 
 ppo:
   lr: 2.5e-4

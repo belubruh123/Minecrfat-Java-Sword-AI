@@ -32,6 +32,11 @@ public final class EnvConfig {
 	/** 1 = real fight: no per-tick healing (vanilla food regen only), the
 	 * episode ends when someone dies, a kill pays and dying is punished. */
 	public boolean mortal = false;
+	/** 1 = horizontal-only aim stage: hold the agent's pitch level (ignore the
+	 * dpitch command) so a from-scratch policy can never look up/down and lose
+	 * the eye-level target off the top of the view — where no yaw spin recovers
+	 * it and the mask goes blank. The vertical stage unlocks it (lock_pitch 0). */
+	public boolean lockPitch = false;
 
 	public static EnvConfig from(JsonObject config) {
 		EnvConfig c = new EnvConfig();
@@ -56,6 +61,7 @@ public final class EnvConfig {
 			if (cur.has("opp_fight_prob")) c.oppFightProb = cur.get("opp_fight_prob").getAsDouble();
 			if (cur.has("allow_jump")) c.allowJump = cur.get("allow_jump").getAsInt() != 0;
 			if (cur.has("mortal")) c.mortal = cur.get("mortal").getAsInt() != 0;
+			if (cur.has("lock_pitch")) c.lockPitch = cur.get("lock_pitch").getAsInt() != 0;
 		}
 		return c;
 	}
