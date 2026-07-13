@@ -265,12 +265,21 @@ public final class Arena {
 		p.setPos(centerX + 0.5, floorY, centerZ + 0.5);
 		level.addNewPlayer(p);
 		p.setGameMode(GameType.SURVIVAL);
+		equipDiamondKit(p);
+		return p;
+	}
+
+	/** Fresh kit every episode: durability persists on ItemStacks, and after
+	 * ~500 hits (≈50k training steps) the armor SHATTERS — kills suddenly
+	 * take 2 hits instead of 11, the value function's world model breaks,
+	 * and the policy gets destroyed by the advantage shock. Three duel runs
+	 * collapsed at the same ~50k mark before this was found. */
+	private static void equipDiamondKit(FakePlayer p) {
 		p.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.DIAMOND_HELMET));
 		p.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.DIAMOND_CHESTPLATE));
 		p.setItemSlot(EquipmentSlot.LEGS, new ItemStack(Items.DIAMOND_LEGGINGS));
 		p.setItemSlot(EquipmentSlot.FEET, new ItemStack(Items.DIAMOND_BOOTS));
 		p.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_SWORD));
-		return p;
 	}
 
 	public void setConfig(EnvConfig cfg) {
@@ -287,6 +296,8 @@ public final class Arena {
 		float agentYaw = (float) (rng.nextDouble() * 360.0 - 180.0);
 		place(agent, centerX + 0.5, floorY, centerZ + 0.5, agentYaw, 0);
 		agent.setNoGravity(false);
+		equipDiamondKit(agent);
+		equipDiamondKit(opponent);
 		comboChain = 0;
 		lastHitTick = -CHAIN_WINDOW - 1;
 		takenSinceLastHit = false;
