@@ -31,6 +31,8 @@ def main() -> None:
     ap.add_argument("--stochastic", action="store_true",
                     help="sample the policy instead of argmax (aim stays deterministic)")
     ap.add_argument("--seed", type=int, default=12345)
+    ap.add_argument("--record", default=None,
+                    help="episode record dir (for the dashboard replay)")
     args = ap.parse_args()
 
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -46,7 +48,7 @@ def main() -> None:
 
     env = MinecraftVecEnv(curriculum=curriculum, stage=stage, seed=args.seed,
                           downsample=426 // w, frame_stack=stack,
-                          record_dir=None)
+                          record_dir=args.record)
     assert (env.h, env.w, env.n_scalars) == (h, w, n_scalars), \
         f"env obs {(env.h, env.w, env.n_scalars)} != checkpoint {(h, w, n_scalars)}"
 

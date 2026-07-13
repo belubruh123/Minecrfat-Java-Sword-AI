@@ -1,6 +1,33 @@
 # Training configs
 
-## Train from zero (no pretrained models needed)
+## Train from zero — one command (recommended)
+
+From the repo root (the server is started/rebooted for you):
+
+```bash
+scripts/train_all.sh            # full budgets — best model (~12h on CPU)
+scripts/train_all.sh quick      # decent model (~4-5h)
+scripts/train_all.sh smoke      # tiny — just proves the pipeline runs end-to-end
+```
+
+Or set your own budgets (steps; 1 step = 1 tick across 8 arenas):
+
+```bash
+AIM_STEPS=1000000 VERT_STEPS=1500000 COMBO_STEPS=1500000 FIGHT_STEPS=250000 \
+    scripts/train_all.sh
+```
+
+It runs all four stages below, reboots the server safely between segments
+(long single boots corrupt hit-registration), warm-starts each stage from the
+previous, and **ships `models/aim.pt` + `models/fighter2.pt`** at the end (your
+old models are backed up to `*_prev.pt`). The pilot then auto-uses them — press
+**G** in game (see `SETUP.md`). Interrupted? Re-run the same command; each stage
+resumes from its own `runs/fz_*/latest.pt`. Delete a `runs/fz_*` dir to redo a
+stage. The fight stage is short and stops at its best checkpoint on purpose —
+on the high-variance mortal task the policy eventually entropy-drifts, so
+best-return checkpointing captures the peak (that is what gets shipped).
+
+## Train from zero — manual (the four stages the script runs)
 
 Run these in order from `trainer/` (server up via `scripts/start_server.sh`):
 

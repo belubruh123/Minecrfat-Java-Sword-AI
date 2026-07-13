@@ -97,22 +97,45 @@ opponents.
 ## B. Training stack — optional
 
 Everything runs on one machine, CPU-only (tested on 4 cores / 5.8 GB RAM).
-Java 25 required.
+Java 25 required. **The pretrained models already ship in `models/` — you only
+need this if you want to train your own bot.**
+
+### Train your own bot — one command
+
+```bash
+scripts/train_all.sh            # full budgets — best model (~12h on CPU)
+scripts/train_all.sh quick      # decent model (~4-5h)
+scripts/train_all.sh smoke      # tiny — just proves the pipeline runs
+```
+
+That is it. It boots and reboots the server for you, trains all four stages
+(aim → vertical aim → combo school → mortal fight), and **ships
+`models/aim.pt` + `models/fighter2.pt`** when done (old ones backed up to
+`*_prev.pt`). The pilot auto-uses them — press **G** in game. Set your own
+budgets with env vars:
+
+```bash
+AIM_STEPS=1000000 VERT_STEPS=1500000 COMBO_STEPS=1500000 FIGHT_STEPS=250000 \
+    scripts/train_all.sh
+```
+
+Interrupted? Re-run the same command — each stage resumes where it left off.
+
+### Or drive a single stage by hand
 
 ```bash
 scripts/start_server.sh     # builds + boots the headless training server,
                             # returns when the bridge (:36565) is up
 cd trainer
-../.venv/bin/python train.py configs/stage5_combo.yaml --run stage5_combo
+../.venv/bin/python train.py configs/stage7a_comboschool.yaml --run my_combo
 ```
 
-- **Training from zero** (no pretrained models) is four configs:
-  `stage1_aim` → `stage2_vertical` → `stage7a_comboschool` →
-  `stage7b_chain` — see `configs/README.md` for the exact order, flags
-  and how to ship your result. To instead fine-tune a single stage from
-  the shipped `models/*.pt`, run just that stage's config. The `fighter2`
-  stages own the attack button themselves and need no `swing_checkpoint`.
-  Superseded generations live in `configs/archive/`.
+- **What the one-command script runs**: `stage1_aim` → `stage2_vertical` →
+  `stage7a_comboschool` → `stage7b_chain` — see `configs/README.md` for the
+  manual order, flags and how to ship. To fine-tune a single stage from the
+  shipped `models/*.pt`, run just that stage's config. The `fighter2` stages
+  own the attack button themselves and need no `swing_checkpoint`. Superseded
+  generations live in `configs/archive/`.
 - Interrupt any time; resume with
   `--resume ../runs/<run>/latest.pt`.
 - Watch training: replay dashboard

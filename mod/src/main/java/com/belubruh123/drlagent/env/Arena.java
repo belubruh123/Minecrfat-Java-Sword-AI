@@ -34,6 +34,14 @@ public final class Arena {
 	// walks partway back during the cooldown; a 20-hit chain still drifts a
 	// few dozen blocks, and the fight must not ring-out before the combo can.
 	private static final int PLATFORM_RADIUS = 32;
+	// Soft wall: real flat-ground PvP has no void edge, but our platform does,
+	// and sprint-knockback juggles the opponent off it before the kill lands.
+	// Recorded duels confirmed it — ~half ended with the opponent walking past
+	// x/z=+-32 and falling (oppY -> -1.6, no KILL reward), capping "success" at
+	// 0.5. Clamping both fighters just inside the edge each tick makes the arena
+	// behave like an unbounded field: nobody rings out, the combo must actually
+	// kill. 2-block margin keeps the 0.6-wide hitbox fully on the stone.
+	private static final double IN_BOUNDS_RADIUS = PLATFORM_RADIUS - 2;
 	// Half of the original 15: a >=5° flick now spans consecutive ticks
 	// instead of teleporting the camera between two frames — the single-tick
 	// snap was the last inhuman thing about the aim (user: "instant
@@ -154,11 +162,53 @@ public final class Arena {
 	private static final float SPRINT_HIT_BONUS_SCALE = 1.0f;
 	// Standing closer than a sword-fight ever needs also costs directly:
 	// vs a real opponent, chest-to-chest is where you get hit back.
+	// Raised 1.6 -> 2.4 (user: "getting too close"). Reach is ~3 blocks, so
+	// penalizing under 2.4 parks the fight in a 2.4-3.0 band that still lands
+	// hits AND keeps the aim on the neck: at <2 blocks the target's body fills
+	// the view and even a neck-locked crosshair pitches down (this is the real
+	// cause of the "aim down when near" seen at point-blank), so holding spacing
+	// is what keeps the camera level.
+	// Reverted to the original mild anti-crowd: the user chose to KEEP the
+	// aggressive knockback-juggle combo (and accept the down-aim it causes via
+	// the sprint-chase to point-blank). Anti-crowd was proven not to decrowd —
+	// the crowding is a chase transient, not a resting spot — so a strong value
+	// only disrupts the warm-started fighters without moving the spacing.
 	private static final double CROWD_DIST = 1.6;
 	private static final float CROWD_COST = 0.03f;
 	// Every takeoff costs a little: jumping is only worth it when it converts
 	// to a crit (net +0.3), so the policy stops hopping around aimlessly.
 	private static final float JUMP_COST = 0.05f;
+	// Don't stare at the feet. Two real reasons: (1) aiming at the AABB center
+	// (~0.9 blocks, half height) pitches the crosshair steeply DOWN as the
+	// opponent closes (at 1.5 blocks ~26 deg down = looking at the ground), which
+	// looks like an aimbot; (2) reach is measured ALONG THE VIEW RAY, so aiming
+	// down theta costs horizontal reach = 3*cos(theta): at 30 deg down a swing at
+	// 2.8 blocks WHIFFS even though the target is "in range" (a^2+b^2=c^2). So
+	// level/head aim both looks human AND maximizes effective reach. On-target is
+	// full-body (hits still land anywhere), so nothing pulls the aim up during
+	// tracking; this penalizes only DOWNWARD deviation below the neck line —
+	// level and upward aim are free.
+	// Strong AND steep on purpose. First attempt (0.20, ramped over 30 deg) was
+	// far too gentle: a realistic 6-10 deg dip below the neck cost ~0.04/tick,
+	// trivial vs the 0.3 on-target reward, and the aim net still sat ~10 deg down
+	// up close. Now 0.30 (== the full ON_TARGET_REWARD) ramped to full over just
+	// LOW_AIM_FULL_DEG below the neck — at close range the chest is already ~6
+	// deg below the neck, so the whole lower body fully cancels the on-target
+	// pay: holding there is net <=0 while the neck keeps the full 0.3. Aiming at
+	// the head (ABOVE the neck) is never charged, so the net rests neck-to-head.
+	private static final float LOW_AIM_COST = 0.30f;
+	private static final float LOW_AIM_MARGIN = 2.0f;  // degrees of slack below the neck
+	private static final double LOW_AIM_FULL_DEG = 6.0; // deg below neck for full penalty
+	// Fraction up the hitbox that counts as the neck/upper-chest aim point.
+	private static final double NECK_FRACTION = 0.85;
+	// For the AIM stage, "on target" (reward + lock) is only the UPPER body from
+	// here up (neck-ish to head). The soft aim-down penalty alone kept losing to
+	// the deep center-aim habit + the hold-still penalty; making the lower body
+	// pay NOTHING removes the plateau entirely — the net cannot lock on the feet,
+	// so it must ride the head/neck. Hits still use the full box, so this only
+	// moves where the camera rests, not where swings land. At 2 blocks the zone
+	// bottom is ~+8 deg (upper chest); at range it is near level.
+	private static final double UPPER_TARGET_FRAC = 0.75;
 
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
@@ -620,6 +670,12 @@ public final class Arena {
 	public StepResult step() {
 		episodeTick++;
 
+		// soft wall (post-tick): keep both fighters on the platform so nobody
+		// rings out. Physics has already run this tick; clamp before any reward
+		// or obs reads their positions.
+		keepInBounds(agent);
+		keepInBounds(opponent);
+
 		if ("swing".equals(cfg.stage)) {
 			return stepSwing();
 		}
@@ -630,7 +686,9 @@ public final class Arena {
 			return stepCombo(); // fighter shares the combo reward structure
 		}
 
-		boolean onTarget = isCrosshairOnTarget();
+		// aim stage: on-target = UPPER body only, so the camera cannot rest on
+		// the feet (hits elsewhere still use the full box).
+		boolean onTarget = isCrosshairOnUpperBody();
 		double angErr = currentAngleError();
 
 		float reward = 0;
@@ -640,7 +698,20 @@ public final class Arena {
 				paidOnTargetTicks++;
 			}
 			consecOnTarget++;
-			// aimed = anywhere on the blob; moving the mouse now is wrong
+			double low = lowAimError();
+			// Don't rest on the feet: while the crosshair is on the body, aiming
+			// below the neck bleeds (the aim net is the policy that owns the
+			// camera for EVERY downstream stage; aiming down also shortens reach
+			// to 3*cos(pitch)). At the neck the cost is ~0 so a settled aim pays
+			// full. Only DOWNWARD deviation is charged; head aim is free.
+			reward -= (float) (LOW_AIM_COST * Math.min(1.0, low / LOW_AIM_FULL_DEG));
+			// Hold still whenever aimed: on-target is now the UPPER BODY only, so
+			// "aimed" already excludes the feet — there is no feet-trap to dodge,
+			// and the always-on rule matches the user's doctrine (aimed at the
+			// enemy => don't move => moving is punished). A position gate here was
+			// worse: it made moving FREE below the neck, so on a moving target the
+			// aim drifted DOWN into that haven (near-range pitch regressed +4->+10
+			// deg over 40k). The low-aim penalty above still pulls up to the neck.
 			if (lastDyaw != 0 || lastDpitch != 0) {
 				reward -= ON_TARGET_MOVE_PENALTY;
 			}
@@ -799,10 +870,13 @@ public final class Arena {
 		if (strafeHeld && isCrosshairOnTarget()) {
 			reward -= STRAFE_COST;
 		}
-		// chest-to-chest is not a sword fight
+		// chest-to-chest is not a sword fight (mild flat penalty, original)
 		if (agent.distanceTo(opponent) < CROWD_DIST) {
 			reward -= CROWD_COST;
 		}
+		// (feet-aiming is fixed in the AIM net, not here: the fighter policy
+		// only moves and attacks — a frozen aim net owns the camera. The
+		// low-aim penalty lives in stepAim where the aim net can respond.)
 		// pursue while the combo is live: closing toward reach pays, backing
 		// off charges, and a window lapsing without its follow-up hit drops
 		// the combo for a depth-scaled penalty (fires once, on the lapse tick).
@@ -876,11 +950,65 @@ public final class Arena {
 				box.maxX - eye.x, box.maxY - eye.y, box.maxZ - eye.z);
 	}
 
+	/** Crosshair on the UPPER body only (see UPPER_TARGET_FRAC). This is the aim
+	 * stage's "on target": rewarding/locking only the head-neck band forces the
+	 * camera to rest there instead of the feet. Hit detection still uses the full
+	 * box, so nothing about where swings land changes. */
+	private boolean isCrosshairOnUpperBody() {
+		Vec3 eye = agent.getEyePosition();
+		Vec3 view = agent.getViewVector(1.0f);
+		AABB box = opponent.getBoundingBox();
+		double upMinY = box.minY + UPPER_TARGET_FRAC * (box.maxY - box.minY);
+		return ObsProjector.rayHitsBox(view.x, view.y, view.z,
+				box.minX - eye.x, upMinY - eye.y, box.minZ - eye.z,
+				box.maxX - eye.x, box.maxY - eye.y, box.maxZ - eye.z);
+	}
+
 	private double currentAngleError() {
 		Vec3 eye = agent.getEyePosition();
-		Vec3 target = opponent.getBoundingBox().getCenter();
+		AABB box = opponent.getBoundingBox();
+		Vec3 c = box.getCenter();
+		// aim at the neck/upper chest, NOT the AABB center: the center sits at
+		// half height (~0.9 blocks) so as the opponent closes the crosshair
+		// pitches down into the feet. The neck is near eye level on flat ground,
+		// keeping the acquisition sweep natural and level.
+		double neckY = box.minY + NECK_FRACTION * (box.maxY - box.minY);
 		return ObsProjector.angleToTarget(agent.getYRot(), agent.getXRot(),
-				eye.x, eye.y, eye.z, target.x, target.y, target.z);
+				eye.x, eye.y, eye.z, c.x, neckY, c.z);
+	}
+
+	/** Degrees the crosshair points BELOW the neck line (0 if level or above).
+	 * Positive MC pitch = looking down; the neck-pitch is how far down the eye
+	 * must tilt to sit on the neck, so anything beyond that (plus a margin) is
+	 * staring at the lower body/feet. */
+	private double lowAimError() {
+		Vec3 eye = agent.getEyePosition();
+		AABB box = opponent.getBoundingBox();
+		Vec3 c = box.getCenter();
+		double neckY = box.minY + NECK_FRACTION * (box.maxY - box.minY);
+		double dx = c.x - eye.x, dz = c.z - eye.z;
+		double horiz = Math.sqrt(dx * dx + dz * dz);
+		double neckPitch = Math.toDegrees(Math.atan2(eye.y - neckY, horiz));
+		return Math.max(0.0, agent.getXRot() - neckPitch - LOW_AIM_MARGIN);
+	}
+
+	/** Soft wall: keep a fighter on the platform (see IN_BOUNDS_RADIUS). Clamps
+	 * horizontal position just inside the edge and kills the outward velocity so
+	 * knockback stops pushing instead of ringing the target out. */
+	private void keepInBounds(FakePlayer p) {
+		double cx = centerX + 0.5, cz = centerZ + 0.5;
+		double x = p.getX(), z = p.getZ();
+		Vec3 v = p.getDeltaMovement();
+		double nx = x, nz = z, vx = v.x, vz = v.z;
+		boolean clamped = false;
+		if (x - cx > IN_BOUNDS_RADIUS) { nx = cx + IN_BOUNDS_RADIUS; vx = Math.min(vx, 0); clamped = true; }
+		else if (cx - x > IN_BOUNDS_RADIUS) { nx = cx - IN_BOUNDS_RADIUS; vx = Math.max(vx, 0); clamped = true; }
+		if (z - cz > IN_BOUNDS_RADIUS) { nz = cz + IN_BOUNDS_RADIUS; vz = Math.min(vz, 0); clamped = true; }
+		else if (cz - z > IN_BOUNDS_RADIUS) { nz = cz - IN_BOUNDS_RADIUS; vz = Math.max(vz, 0); clamped = true; }
+		if (clamped) {
+			p.setPos(nx, p.getY(), nz);
+			p.setDeltaMovement(vx, v.y, vz);
+		}
 	}
 
 	private boolean blockedByBlocks(Vec3 from, Vec3 to) {

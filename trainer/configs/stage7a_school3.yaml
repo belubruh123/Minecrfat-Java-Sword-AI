@@ -1,0 +1,47 @@
+# Stage 7a v3: COMBO SCHOOL re-fine-tune to KILL feet-aiming. Warm-started
+# from the proven combo graduate (stage7a_school2/final.pt: 0.4 whiffs, 92%
+# chains) and trained with the strengthened aim-down penalty now in the mod:
+#   * neck-aim target (crosshair rides the upper body, near eye level)
+#   * LOW_AIM_COST 0.10 on any aim below the neck line — feet-aiming both
+#     looks robotic AND shortens horizontal reach (3*cos(theta)), so it
+#     causes whiffs the policy should learn to avoid.
+# The immortal walker (opponent: passive, never attacks) is the LOW-VARIANCE
+# place to perfect clean aim before the mortal fight — the high-variance fast
+# duel is what entropy-drifted the chain run. GENTLE fine-tune: lr 1e-4,
+# ent 0.001 (a near-solved task + entropy bonus = the drift trap), and
+# best-return checkpointing holds the peak. Cut when whiffs<5 and the
+# close-range pitch drops off the feet.
+# Run via the segmented loop (corruption-safe reboots):
+#   scripts/train_segmented.sh configs/stage7a_school3.yaml stage7a_school3 400000 40000
+stage: fighter2
+seed: 74
+total_steps: 400_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../models/aim.pt
+init_checkpoint: ../runs/stage7a_school2/final.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 400
+  lock_ticks: 3
+  opponent: passive     # chases at full speed + sprint, never attacks
+  allow_jump: 0
+
+ppo:
+  lr: 1.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.001
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

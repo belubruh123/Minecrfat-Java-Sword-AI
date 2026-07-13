@@ -1,0 +1,42 @@
+# Aim fine-tune: NECK TARGET. The shipped aim.pt aimed at the hitbox CENTER
+# (~0.9 blocks), so up close the crosshair pitched into the feet — and since
+# the frozen aim net steers EVERY downstream stage, no amount of combo/fight
+# retraining could fix it. This retrains the camera itself: currentAngleError
+# now targets the neck (0.85 up the box, near eye level on flat ground) and
+# stepAim charges any aim below the neck line (also protects horizontal reach,
+# which shrinks as 3*cos(pitch)). Warm-started from the shipped smooth aim so
+# the flick-or-hold doctrine (jerk cost, 5deg deadzone, 7.5deg/tick cap) and
+# 100% lock rate carry over; keeps 25% vertical rehearsal so elevated aim is
+# not forgotten. Moving target (passive walker) so it learns to TRACK the neck.
+# Run via segmented loop: scripts/train_segmented.sh configs/aim_neck.yaml aim_neck 400000 40000
+stage: aim
+seed: 83
+total_steps: 400_000
+downsample: 3
+frame_stack: 4
+init_checkpoint: ../models/aim.pt
+
+curriculum:
+  horizontal_prob: 0.75
+  max_elev: 3.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 400
+  lock_ticks: 3
+  opponent: passive     # moving target: walks at the agent, no attacks
+  allow_jump: 0
+
+ppo:
+  lr: 1.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.002
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

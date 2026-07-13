@@ -15,24 +15,42 @@
       "name": "Smooth aim v4 — half camera speed (7.5°/tick)",
       "run": "aim_smooth_v4",
       "total_steps": 800000,
-      "status": "running"
+      "status": "done"
     },
     {
       "name": "Combo school — strafe-centering fine-tune",
       "run": "stage7a_school2",
       "total_steps": 800000,
-      "status": "queued"
+      "status": "done"
     },
     {
-      "name": "Mortal duels — sword-swinging bot, death ends the episode",
+      "name": "Duel ii: slow opponent — proven fighter (13 combo hits, 95x dmg)",
+      "run": "stage7b_duel",
+      "total_steps": 500000,
+      "status": "done"
+    },
+    {
+      "name": "Aim retrain — neck target (SHIPPED: +1.9deg at fight range)",
+      "run": "aim_neck",
+      "total_steps": 400000,
+      "status": "done"
+    },
+    {
+      "name": "Combo confirmed working (31 hits); aim/spacing explored — juggle kept per user",
+      "run": "stage7a_school2",
+      "total_steps": 800000,
+      "status": "done"
+    },
+    {
+      "name": "Fight: full-speed mortal opponent — SHIPPED (81% hit, 4.47x dmg ratio, 9.8 combo)",
       "run": "stage7b_chain",
-      "total_steps": 2000000,
-      "status": "queued"
+      "total_steps": 1200000,
+      "status": "done"
     },
     {
-      "name": "Final evals + ship fighter2.pt",
+      "name": "Shipped models/fighter2.pt (pilot auto-uses it) + aim.pt",
       "fixed_minutes": 30,
-      "status": "queued"
+      "status": "done"
     }
   ]
 }
