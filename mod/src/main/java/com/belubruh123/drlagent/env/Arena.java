@@ -34,7 +34,12 @@ public final class Arena {
 	// walks partway back during the cooldown; a 20-hit chain still drifts a
 	// few dozen blocks, and the fight must not ring-out before the combo can.
 	private static final int PLATFORM_RADIUS = 32;
-	private static final float MAX_TURN_PER_TICK = 15.0f;
+	// Half of the original 15: a >=5° flick now spans consecutive ticks
+	// instead of teleporting the camera between two frames — the single-tick
+	// snap was the last inhuman thing about the aim (user: "instant
+	// snapping... SO WEIRD"). With the 5° deadzone the usable per-tick band
+	// is [5, 7.5]; larger corrections are multi-tick sweeps.
+	private static final float MAX_TURN_PER_TICK = 7.5f;
 
 	// Stage-1 aim reward constants
 	private static final float ON_TARGET_REWARD = 0.3f;

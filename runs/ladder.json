@@ -12,10 +12,16 @@
       "status": "done"
     },
     {
+      "name": "Smooth aim v4 — half camera speed (7.5°/tick)",
+      "run": "aim_smooth_v4",
+      "total_steps": 800000,
+      "status": "running"
+    },
+    {
       "name": "Combo school — strafe-centering fine-tune",
       "run": "stage7a_school2",
       "total_steps": 800000,
-      "status": "running"
+      "status": "queued"
     },
     {
       "name": "Mortal duels — sword-swinging bot, death ends the episode",
