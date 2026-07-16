@@ -1032,21 +1032,26 @@ public final class Arena {
 		float reward = 0;
 		if (attackPressed) {
 			if (hitLanded) {
-				reward += lastAttackCharge;
-				if (hitWasCrit) {
-					reward += CRIT_BONUS_SCALE * lastAttackCharge;
-				}
 				if (hitWasSprint) {
+					reward += lastAttackCharge;
 					reward += SPRINT_HIT_BONUS_SCALE * lastAttackCharge;
-				}
-				if (episodeTick - lastHitTick <= CHAIN_WINDOW && !takenSinceLastHit) {
-					comboChain++;
+					if (hitWasCrit) {
+						reward += CRIT_BONUS_SCALE * lastAttackCharge;
+					}
+					// Only sprint hits count for combo chain
+					if (episodeTick - lastHitTick <= CHAIN_WINDOW && !takenSinceLastHit) {
+						comboChain++;
+					} else {
+						comboChain = 1;
+					}
+					reward += CHAIN_BONUS * Math.min(comboChain - 1, CHAIN_CAP);
 				} else {
-					comboChain = 1;
+					// "little few reward" for non-sprint hit
+					reward += 0.1f * lastAttackCharge;
+					comboChain = 0; // break chain if it's not a sprint hit combo
 				}
 				lastHitTick = episodeTick;
 				takenSinceLastHit = false;
-				reward += CHAIN_BONUS * Math.min(comboChain - 1, CHAIN_CAP);
 			} else {
 				reward -= WHIFF_PENALTY;
 			}
@@ -1091,8 +1096,13 @@ public final class Arena {
 		// teaches permanent kiting (0 hits, 0 taken, 1200-tick timeouts).
 		boolean chainLive = comboChain >= 1 && !takenSinceLastHit
 				&& episodeTick - lastHitTick <= CHAIN_WINDOW;
-		double chasePhi = -Math.max(0.0, agent.distanceTo(opponent) - 2.8);
-		// unconditional pursuit: always want to be at edge of reach (2.8 blocks)
+		
+		float currentCharge = agent.getAttackStrengthScale(1.0f);
+		// If cooldown is ready, we want to engage (2.8 reach). If not, we keep distance to "stop" and wait.
+		double idealDist = (currentCharge > 0.95f) ? 2.8 : 3.5;
+		// use Math.abs to penalize both being too far and being too close, enforcing the spacing explicitly
+		double chasePhi = -Math.abs(agent.distanceTo(opponent) - idealDist);
+		
 		reward += (float) (PURSUIT_SHAPING * (chasePhi - chasePhiBefore));
 		chasePhiBefore = chasePhi;
 		if (comboChain >= 1 && !takenSinceLastHit
@@ -1265,6 +1275,15 @@ public final class Arena {
 		buf.putFloat(agent.getAttackStrengthScale(1.0f));
 		buf.putFloat(agent.getHealth() / agent.getMaxHealth());
 		buf.putFloat(lastReach);
+		
+		double odx = opponent.getX() - opponent.xOld;
+		double ody = opponent.getY() - opponent.yOld;
+		double odz = opponent.getZ() - opponent.zOld;
+		double dy = agent.getY() - agent.yOld;
+		
+		buf.putFloat((float) (odx - dx));
+		buf.putFloat((float) (ody - dy));
+		buf.putFloat((float) (odz - dz));
 	}
 
 	/** Debug/replay telemetry (PROTOCOL.md obs frame, 12 f32): both fighters'

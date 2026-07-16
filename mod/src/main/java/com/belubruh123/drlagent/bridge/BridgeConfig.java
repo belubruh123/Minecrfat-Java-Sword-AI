@@ -12,7 +12,7 @@ public final class BridgeConfig {
 	public static final int OBS_HEIGHT = 240;
 	public static final String[] SCALARS = {
 			"speed", "yaw_sin", "yaw_cos", "pitch", "y", "on_ground",
-			"cooldown", "health", "last_reach"
+			"cooldown", "health", "last_reach", "rel_vx", "rel_vy", "rel_vz"
 	};
 
 	private BridgeConfig() {
