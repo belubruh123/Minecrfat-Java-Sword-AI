@@ -38,9 +38,17 @@ public final class PilotBridge implements Closeable {
 		out = new DataOutputStream(socket.getOutputStream());
 	}
 
-	/** Sends the hello and waits for the server's ready reply. */
-	public void handshake(int width, int height) throws IOException {
-		String hello = "{\"msg\":\"pilot_hello\",\"protocol\":1,\"width\":" + width
+	/**
+	 * Sends the hello and waits for the server's ready reply. Protocol 2 adds an
+	 * optional {@code "train":true} field in the reply: a learning server
+	 * (trainer/pilot_train.py) asks for the reward+done obs variant so it can do
+	 * online PPO from live play. A plain inference server (trainer/pilot.py)
+	 * replies {@code {"msg":"ready"}} and gets the mask+scalars-only frame.
+	 *
+	 * @return true if the server requested training mode.
+	 */
+	public boolean handshake(int width, int height) throws IOException {
+		String hello = "{\"msg\":\"pilot_hello\",\"protocol\":2,\"width\":" + width
 				+ ",\"height\":" + height + "}";
 		byte[] payload = hello.getBytes(StandardCharsets.UTF_8);
 		out.writeInt(payload.length + 1);
@@ -51,8 +59,10 @@ public final class PilotBridge implements Closeable {
 		if (!reply.contains("\"ready\"")) {
 			throw new IOException("unexpected pilot server reply: " + reply);
 		}
+		return reply.contains("\"train\":true") || reply.contains("\"train\": true");
 	}
 
+	/** Inference obs (protocol 1/2): mask + scalars only. */
 	public void sendObs(byte[] mask, float[] scalars) throws IOException {
 		out.writeInt(1 + mask.length + scalars.length * 4);
 		out.writeByte(TYPE_OBS);
@@ -60,6 +70,24 @@ public final class PilotBridge implements Closeable {
 		for (float s : scalars) {
 			out.writeFloat(s);
 		}
+		out.flush();
+	}
+
+	/** Training obs (protocol 2): mask + scalars + reward (f32) + done (u8) +
+	 * info (u8 bit flags, same INFO_* set as the training bridge), so the
+	 * learning server has the full (obs, reward, done, info) tuple for the
+	 * action it just sent — mirrors the training bridge's observation batch. */
+	public void sendObs(byte[] mask, float[] scalars, float reward, boolean done,
+			int info) throws IOException {
+		out.writeInt(1 + mask.length + scalars.length * 4 + 4 + 1 + 1);
+		out.writeByte(TYPE_OBS);
+		out.write(mask);
+		for (float s : scalars) {
+			out.writeFloat(s);
+		}
+		out.writeFloat(reward);
+		out.writeByte(done ? 1 : 0);
+		out.writeByte(info & 0xff);
 		out.flush();
 	}
 

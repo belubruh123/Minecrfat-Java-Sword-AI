@@ -73,6 +73,7 @@
   <select id="runSel" title="training run"></select>
   <select id="epSel" title="recorded episode"></select>
   <button id="follow" class="active" title="auto-play newest episode">follow latest</button>
+  <button id="followStage" class="active" title="auto-jump the charts + replay to the running pipeline stage">follow stage</button>
   <span id="status" class="muted">connecting…</span>
 </header>
 
@@ -253,6 +254,26 @@ function renderCharts(metrics) {
 
 // ---------- episode replay ----------
 let ep = null, frame = 0, playing = true, timer = null, curRun = null, curEp = null;
+
+// Auto-follow the active pipeline stage: when the ladder advances (stage 1 -> 2
+// -> ...), jump the charts + replay to the newly-running stage's run so the
+// dashboard always shows what is training NOW — unless the user manually picks a
+// run from the dropdown. `activeStageRun` is set by the pipeline poller below.
+let autoStage = true, activeStageRun = null;
+function switchRun(run) {
+  if (!run || run === curRun) return;
+  curRun = run;
+  const sel = $("runSel");
+  if (![...sel.options].some(o => o.value === run)) {   // a new stage's dir may
+    const o = document.createElement("option");         // not have existed at boot
+    o.value = o.textContent = run;
+    sel.appendChild(o);
+  }
+  sel.value = run;
+  curEp = null;
+  loadLatest();
+  refreshMetrics();
+}
 
 function b64bits(b64, h, w) {
   const bin = atob(b64), bytes = new Uint8Array(bin.length);
@@ -568,7 +589,14 @@ async function boot() {
   sel.innerHTML = runs.map(r => `<option>${r.name}</option>`).join("");
   if (!runs.length) { $("status").textContent = "no runs yet"; return; }
   curRun = runs[0].name;
-  sel.onchange = () => { curRun = sel.value; curEp = null; loadLatest(); refreshMetrics(); };
+  sel.onchange = () => {
+    autoStage = false; $("followStage").classList.remove("active");  // manual override
+    curRun = sel.value; curEp = null; loadLatest(); refreshMetrics();
+  };
+  $("followStage").onclick = e => {
+    autoStage = e.currentTarget.classList.toggle("active");
+    if (autoStage && activeStageRun) switchRun(activeStageRun);      // jump back to live stage
+  };
   $("epSel").onchange = e => { $("follow").classList.remove("active"); loadEpisode(curRun, e.target.value); };
   $("follow").onclick = e => { e.target.classList.toggle("active"); loadLatest(); };
   $("play").onclick = e => { playing = !playing; e.target.textContent = playing ? "pause" : "play"; };
@@ -589,6 +617,7 @@ async function liveLoop() {
   setInterval(async () => {
     try {
       const r = await fetch("/api/live", {cache: "no-store"});
+      if (r.status === 204) throw new Error("offline");
       if (!r.ok) throw new Error();
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
@@ -639,8 +668,11 @@ boot().catch(e => { $("status").textContent = "error: " + e.message; });
           : st.status === "running"
             ? `${pct.toFixed(1)}% · ${st.sps} sps · ~${fmt(eta)} left`
           : eta != null ? `queued · est ~${fmt(eta)}` : "queued";
+      const nm = st.status === "running" && !st.stalled
+          ? `<b style="color:var(--series)">▶ ${st.name}</b>`   // highlight the live stage
+          : st.name;
       return `<div class="pipeRow"><span class="dot" style="background:${col}"></span>
-        <span class="nm">${st.name}<span class="muted" style="font-size:11px">${stats}</span></span>
+        <span class="nm">${nm}<span class="muted" style="font-size:11px">${stats}</span></span>
         <span class="pipeBar"><i style="width:${pct}%; background:${col}"></i></span>
         <span class="eta">${right}</span></div>`;
     }).join("");
@@ -650,7 +682,14 @@ boot().catch(e => { $("status").textContent = "error: " + e.message; });
   const load = async () => {
     try {
       const r = await fetch("/api/progress");
-      if (r.ok) { data = await r.json(); fetchedAt = Date.now(); }
+      if (r.ok) {
+        data = await r.json(); fetchedAt = Date.now();
+        const active = data.stages.find(s => s.status === "running" && s.run);
+        if (active) {
+          activeStageRun = active.run;
+          if (autoStage) switchRun(active.run);   // follow the ladder into the next stage
+        }
+      }
     } catch { /* keep last data */ }
     render();
   };

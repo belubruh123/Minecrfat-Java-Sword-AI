@@ -12,12 +12,13 @@ curriculum:
   max_elev: 6.0          # opponent hovers up to +-6 blocks
   dist_min: 3.0
   dist_max: 8.0
-  yaw_range: 90.0
+  yaw_range: 30.0        # spawn the player mostly IN FRONT so it can see it and
+                         # isn't confused hunting a wide-angle target while it's
+                         # also learning pitch (was 90 — too wide, caused spins)
   episode_ticks: 200
   lock_ticks: 3
   opponent: static
-  lock_pitch: 0          # unlock pitch here: elevated targets need it, and the
-                         # 30% eye-level rehearsal keeps horizontal aim sharp
+  lock_pitch: 0          # unlock pitch: this stage teaches BOTH axes together
 
 curriculum_manager:      # anti-forgetting eval guard
   eval_every: 50_000
@@ -42,3 +43,8 @@ ppo:
   max_grad_norm: 0.5
   reward_scale: 1.0
   torch_threads: 3
+  # Stage 1 locks pitch, so its pitch head gets no gradient and drifts (measured
+  # ~12 deg/tick down). Reset just the pitch head on warm-start so pitch starts
+  # level and learns cleanly here — without this the agent tilts into the ground
+  # and spins even with the target in front. Keeps the trained yaw.
+  reset_pitch_head: 1

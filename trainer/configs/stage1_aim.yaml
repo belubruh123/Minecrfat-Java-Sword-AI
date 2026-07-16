@@ -1,4 +1,7 @@
-# Stage 1: horizontal aim. Opponent spawns at eye height around the agent.
+# Stage 1: horizontal aim. Opponent spawns around the agent at a jittered
+# height (v_jitter) so the target isn't always on the same screen row. Pitch is
+# locked, so the lock is graded on YAW alignment only — the policy learns to
+# center the target horizontally at any height, not "spin until white appears".
 stage: aim
 seed: 1
 total_steps: 3_000_000
@@ -10,13 +13,16 @@ curriculum:
   max_elev: 0.0
   dist_min: 3.0
   dist_max: 8.0
-  yaw_range: 90.0    # mostly-in-front spawns first; widened in stage 2 work
+  yaw_range: 90.0    # full horizontal sweep — this stage is all about yaw
+  v_jitter: 1.5      # target height varies +-1.5 blocks (floor-clamped) so the
+                     # blob lands on different screen rows; on-target is yaw-only
+                     # so a level crosshair still locks. Stays in the vertical FOV
+                     # at dist_min=3, so no yaw-unrecoverable off-screen loss.
   episode_ticks: 200
   lock_ticks: 3
   opponent: static
-  lock_pitch: 1          # horizontal stage: hold pitch level so a fresh policy
-                         # can't look up and lose the eye-level target (the
-                         # vertical stage unlocks it). Prevents wasted training.
+  lock_pitch: 1      # horizontal stage: pitch is LOCKED (yaw only). The vertical
+                     # stage unlocks pitch and teaches both axes.
 
 ppo:
   lr: 2.5e-4

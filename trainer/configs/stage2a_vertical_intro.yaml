@@ -1,0 +1,43 @@
+# Stage 2a: vertical INTRODUCTION — the opponent is ALWAYS in view.
+# Pitch is unlocked but the target spawns at tiny elevation (±1.5 blocks)
+# directly in front (yaw_range 15°). At dist_min=4 and max_elev=1.5,
+# the pitch needed is atan(1.5/4) ≈ 21° — well within the 70° vertical FOV.
+# The agent learns what pitch control DOES while seeing the target every
+# tick — no blank-mask panic, no spinning. It internalizes "adjust pitch to
+# track a moving target" before stage 2b widens the challenge.
+#
+# Resume from the stage-1 horizontal checkpoint:
+#   INIT_CKPT=../runs/fz_aim/best.pt scripts/train_segmented.sh \
+#       configs/stage2a_vertical_intro.yaml fz_aim_vert_intro 800000 40000
+stage: aim
+seed: 20
+total_steps: 800_000
+downsample: 3
+frame_stack: 4
+
+curriculum:
+  horizontal_prob: 0.3   # 30% eye-level rehearsal, 70% slight elevation
+  max_elev: 1.5          # tiny: ±1.5 blocks — always in view at dist_min=4
+  dist_min: 4.0          # slightly farther so pitch angle stays small
+  dist_max: 8.0
+  yaw_range: 15.0        # dead ahead — the agent WILL see the target
+  episode_ticks: 200
+  lock_ticks: 3
+  opponent: static
+  lock_pitch: 0          # pitch is UNLOCKED — this is the whole point
+
+ppo:
+  lr: 1.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.004        # slightly more exploration than stage2 (was 0.002)
+                          # helps the fresh pitch head explore early
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3
+  reset_pitch_head: 1    # reset garbage pitch head from locked stage

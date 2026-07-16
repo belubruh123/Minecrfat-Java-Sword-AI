@@ -41,6 +41,35 @@ public final class PilotController {
 	/** Client ticks to wait for the server to confirm a hit (hurtTime jump). */
 	private static final int REACH_CONFIRM_TICKS = 10;
 
+	// --- Online training (train mode) -------------------------------------
+	/** Live-play episode length before a timeout "done" (matches stage8/7b). */
+	private static final int TRAIN_EPISODE_TICKS = 1200;
+	// Combat reward constants MIRRORED from Arena.java stepCombo — keep in sync
+	// (a shared env/ComboReward helper is the clean follow-up). The dominant
+	// terms are reproduced; minor per-tick shaping (strafe/jump/hesitation
+	// costs, chain-drop-on-lapse) is intentionally omitted for the live path.
+	private static final float R_WHIFF = 1.0f;
+	private static final float R_HIT_TAKEN = 0.75f;
+	private static final float R_CRIT_SCALE = 0.35f;
+	private static final float R_SPRINT_SCALE = 1.0f;
+	private static final float R_CHAIN_BONUS = 0.35f;
+	private static final int R_CHAIN_CAP = 8;
+	private static final float R_CHAIN_BREAK = 0.2f;
+	private static final float R_PURSUIT = 0.15f;
+	private static final float R_CROWD = 0.03f;
+	private static final double R_CROWD_DIST = 1.6;
+	private static final float R_KILL = 5.0f;
+	private static final float R_DEATH = 5.0f;
+	private static final float R_MORTAL_TICK = 0.02f;
+	private static final float R_FAR = 0.01f;
+	// info bit flags — same set/values as vec_env.py + Arena.INFO_*
+	private static final int INFO_HIT_LANDED = 2;
+	private static final int INFO_HIT_TAKEN = 4;
+	private static final int INFO_WHIFF = 16;
+	private static final int INFO_CRIT = 32;
+	private static final int INFO_SPRINT_HIT = 64;
+	private static final int INFO_CHAIN_HIT = 128;
+
 	private PilotBridge bridge;
 	private int port = PilotBridge.DEFAULT_PORT;
 	private AbstractClientPlayer target;
@@ -61,6 +90,19 @@ public final class PilotController {
 	private float pendingReach;
 	private int pendingReachTicks;
 	private int prevTargetHurt;
+
+	// Online training: when the connected server asked for train mode, the
+	// controller also computes a per-tick combat reward + done and sends them
+	// with the obs, so trainer/pilot_train.py can run PPO from live play.
+	private boolean trainMode;
+	private float trainReward;
+	private int trainInfo;
+	private boolean airWhiffThisTick;
+	private float pendingCharge;
+	private double chasePhiBefore;
+	private boolean haveChasePhi;
+	private boolean hadTarget;
+	private int episodeStartTick;
 
 	/** Fight stats for the HUD panel and /pilot status. Hits are counted when
 	 * the server confirms them (target hurtTime jump), same as lastReach; the
@@ -138,15 +180,17 @@ public final class PilotController {
 			return;
 		}
 		PilotBridge b;
+		boolean train;
 		try {
 			b = new PilotBridge(port, 300, 45);
-			b.handshake(BridgeConfig.OBS_WIDTH, BridgeConfig.OBS_HEIGHT);
+			train = b.handshake(BridgeConfig.OBS_WIDTH, BridgeConfig.OBS_HEIGHT);
 		} catch (IOException e) {
 			msg(mc, "pilot server unreachable on :" + port
 					+ " — start trainer/pilot.py first (" + e.getMessage() + ")");
 			return;
 		}
 		bridge = b;
+		trainMode = train;
 		target = null;
 		obsPending = false;
 		lateActions = 0;
@@ -164,7 +208,16 @@ public final class PilotController {
 		takenSinceLastHit = false;
 		pendingSprint = pendingCrit = false;
 		prevSelfHurt = player.hurtTime;
-		msg(mc, "engaged — press the toggle again to take back control");
+		trainReward = 0;
+		airWhiffThisTick = false;
+		pendingCharge = 0;
+		chasePhiBefore = 0;
+		haveChasePhi = false;
+		hadTarget = false;
+		episodeStartTick = 0;
+		msg(mc, trainMode
+				? "engaged (TRAINING) — the policy is learning from this fight"
+				: "engaged — press the toggle again to take back control");
 	}
 
 	public void disengage(Minecraft mc, String reason) {
@@ -247,6 +300,7 @@ public final class PilotController {
 			if (hit.isPresent() && !blockedByBlocks(mc, player, eye, hit.get())) {
 				pendingReach = (float) eye.distanceTo(hit.get());
 				pendingReachTicks = REACH_CONFIRM_TICKS;
+				pendingCharge = charge;
 				pendingCrit = critCandidate;
 				pendingSprint = sprintCandidate;
 				mc.gameMode.attack(player, target);
@@ -254,10 +308,13 @@ public final class PilotController {
 				return;
 			}
 		}
+		// swung with no target in reach: an air swing that burns the cooldown
+		airWhiffThisTick = true;
 		player.swing(InteractionHand.MAIN_HAND);
 	}
 
-	/** After the world ticked: update bookkeeping, pick a target, send obs. */
+	/** After the world ticked: update bookkeeping, pick a target, compute the
+	 * training reward (train mode only), and send the obs. */
 	public void endTick(Minecraft mc) {
 		if (bridge == null) {
 			return;
@@ -267,14 +324,29 @@ public final class PilotController {
 			disengage(mc, "left the world");
 			return;
 		}
+		// snapshot terminal events BEFORE retarget clears a dead/removed target
+		boolean targetKilled = target != null
+				&& (target.isDeadOrDying() || target.isRemoved());
+		boolean selfDead = player.isDeadOrDying() || player.getHealth() <= 0;
+
 		if (player.onGround()) {
 			lastGroundY = player.getY();
 		}
 		retarget(mc, player);
 		statTick++;
+		trainReward = 0;
+		trainInfo = 0;
 
 		// getting hit breaks the combo chain, mirroring training
 		if (player.hurtTime > prevSelfHurt) {
+			if (trainMode) {
+				trainReward -= R_HIT_TAKEN;
+				if (!takenSinceLastHit && statTick - lastHitStatTick <= STAT_CHAIN_WINDOW) {
+					trainReward -= R_CHAIN_BREAK
+							* Math.min(Math.max(statChain - 1, 0), R_CHAIN_CAP);
+				}
+			}
+			trainInfo |= INFO_HIT_TAKEN;
 			statTaken++;
 			takenSinceLastHit = true;
 			statChain = 0;
@@ -305,16 +377,72 @@ public final class PilotController {
 				statBestChain = Math.max(statBestChain, statChain);
 				lastHitStatTick = statTick;
 				takenSinceLastHit = false;
-			} else {
-				pendingReachTicks--;
+				trainInfo |= INFO_HIT_LANDED;
+				if (pendingCrit) trainInfo |= INFO_CRIT;
+				if (pendingSprint) trainInfo |= INFO_SPRINT_HIT;
+				if (statChain >= 2) trainInfo |= INFO_CHAIN_HIT;
+				if (trainMode) {
+					trainReward += pendingCharge;
+					if (pendingCrit) trainReward += R_CRIT_SCALE * pendingCharge;
+					if (pendingSprint) trainReward += R_SPRINT_SCALE * pendingCharge;
+					trainReward += R_CHAIN_BONUS * Math.min(statChain - 1, R_CHAIN_CAP);
+				}
+			} else if (--pendingReachTicks == 0) {
+				// confirmation window lapsed with no hurtTime jump: swing missed
+				trainInfo |= INFO_WHIFF;
+				if (trainMode) trainReward -= R_WHIFF;
 			}
 		}
 		prevTargetHurt = target != null ? target.hurtTime : 0;
 
+		// an air swing (no target in reach) is an immediate whiff
+		if (airWhiffThisTick) {
+			trainInfo |= INFO_WHIFF;
+			if (trainMode) trainReward -= R_WHIFF;
+		}
+		airWhiffThisTick = false;
+
+		boolean done = false;
+		if (trainMode) {
+			// spacing / mortal shaping (dominant stepCombo terms; the minor
+			// per-tick strafe/jump/hesitation costs are omitted for live play).
+			// Only accrue while a target is engaged — idling before acquisition
+			// must not bleed reward or spawn spurious 1-tick episodes.
+			if (target != null) {
+				double dist = player.distanceTo(target);
+				double chasePhi = -Math.max(0.0, dist - 2.8);
+				if (!haveChasePhi) {
+					chasePhiBefore = chasePhi;
+					haveChasePhi = true;
+				}
+				trainReward += (float) (R_PURSUIT * (chasePhi - chasePhiBefore));
+				chasePhiBefore = chasePhi;
+				trainReward -= R_MORTAL_TICK;
+				trainReward -= (float) (R_FAR * Math.min(4.0, Math.max(0.0, dist - 3.0)));
+				if (dist < R_CROWD_DIST) {
+					trainReward -= R_CROWD;
+				}
+			}
+			if (targetKilled) trainReward += R_KILL;
+			if (selfDead) trainReward -= R_DEATH;
+			// episode ends on a kill, a death, losing an engaged target, or the
+			// timeout; a fresh connection with no target yet does NOT end.
+			boolean lostTarget = hadTarget && target == null;
+			done = targetKilled || selfDead || lostTarget
+					|| statTick - episodeStartTick >= TRAIN_EPISODE_TICKS;
+			if (done) {
+				statChain = 0;
+				takenSinceLastHit = false;
+				haveChasePhi = false;
+				episodeStartTick = statTick;
+			}
+		}
+		hadTarget = target != null;
+
 		if (obsPending) {
 			return; // previous action still in flight; strict alternation
 		}
-		buildAndSendObs(mc, player);
+		buildAndSendObs(mc, player, done);
 	}
 
 	private void retarget(Minecraft mc, LocalPlayer player) {
@@ -340,7 +468,7 @@ public final class PilotController {
 		}
 	}
 
-	private void buildAndSendObs(Minecraft mc, LocalPlayer player) {
+	private void buildAndSendObs(Minecraft mc, LocalPlayer player, boolean done) {
 		Arrays.fill(mask, (byte) 0);
 		if (target != null && isTargetVisible(mc, player)) {
 			Vec3 eye = player.getEyePosition();
@@ -367,7 +495,11 @@ public final class PilotController {
 				lastReach,
 		};
 		try {
-			bridge.sendObs(mask, scalars);
+			if (trainMode) {
+				bridge.sendObs(mask, scalars, trainReward, done, trainInfo);
+			} else {
+				bridge.sendObs(mask, scalars);
+			}
 			obsPending = true;
 		} catch (IOException e) {
 			disengage(mc, "connection lost: " + e.getMessage());

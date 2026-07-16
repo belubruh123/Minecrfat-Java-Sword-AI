@@ -40,7 +40,18 @@ boot() {
   scripts/start_server.sh "$LOG"
 }
 
+# Resuming a run already past the early segment targets? Start the segment
+# counter at the checkpoint's step (rounded down to a SEG multiple). Otherwise
+# we reboot the server dozens of times just to have train.py exit immediately
+# because global_step already exceeds a tiny 40k segment target — minutes of
+# churn with zero training. Only affects runs with an existing latest.pt.
 CUR=0
+if [ -f "runs/$RUN/latest.pt" ]; then
+  STEP=$(.venv/bin/python -c "import torch;print(torch.load('runs/$RUN/latest.pt',map_location='cpu',weights_only=False).get('step',0))" 2>/dev/null || echo 0)
+  case "$STEP" in ''|*[!0-9]*) STEP=0 ;; esac
+  CUR=$(( (STEP / SEG) * SEG ))
+  [ "$CUR" -gt 0 ] && echo "resuming $RUN at step $STEP -> segments start at $CUR (skipping no-op reboots)"
+fi
 while [ "$CUR" -lt "$TOTAL" ]; do
   CUR=$((CUR + SEG)); [ "$CUR" -gt "$TOTAL" ] && CUR="$TOTAL"
   RES=""

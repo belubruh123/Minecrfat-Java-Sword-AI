@@ -1,0 +1,48 @@
+# Stage 2b: full vertical aim — opponent can be well above or below.
+# Resume from stage 2a (the agent already knows pitch tracking from gentle
+# elevation). Now widen: max_elev=6, yaw_range=30. The agent must handle
+# bigger pitch corrections and occasionally lose/refind the target — the
+# new reward signals (extreme pitch penalty, lost target penalty, pitch
+# return shaping) guide recovery when it does.
+#
+# Resume from stage 2a checkpoint:
+#   scripts/train_segmented.sh configs/stage2b_vertical_full.yaml \
+#       fz_aim_vert 3000000 40000
+stage: aim
+seed: 21
+total_steps: 3_000_000
+downsample: 3
+frame_stack: 4
+
+curriculum:
+  horizontal_prob: 0.3   # rehearsal share of eye-level episodes
+  max_elev: 6.0          # full elevation range
+  dist_min: 3.0
+  dist_max: 8.0
+  yaw_range: 30.0        # mostly in front, same as original stage2
+  episode_ticks: 200
+  lock_ticks: 3
+  opponent: static
+  lock_pitch: 0          # pitch unlocked
+
+curriculum_manager:      # anti-forgetting eval guard
+  eval_every: 50_000
+  eval_episodes: 64
+  eval_seed: 777
+  h_prob_floor: 0.25
+  h_prob_cap: 0.6
+  guard_drop: 0.10
+
+ppo:
+  lr: 1.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  ent_coef: 0.002
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

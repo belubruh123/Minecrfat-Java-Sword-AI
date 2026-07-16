@@ -162,6 +162,7 @@ def live():
     stale, so the page can hide the panel."""
     import time
     if not LIVE_JPG.exists() or time.time() - LIVE_JPG.stat().st_mtime > 5:
-        raise HTTPException(404, "no live frame")
+        from fastapi import Response
+        return Response(status_code=204)
     return FileResponse(LIVE_JPG, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})

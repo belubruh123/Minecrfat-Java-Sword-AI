@@ -1,32 +1,44 @@
 {
   "stages": [
     {
-      "name": "Aim — horizontal, from scratch (15 deg/tick, near+far)",
+      "name": "1/6  Aim \u2014 horizontal, pitch LOCKED, varied target height (yaw only)",
       "run": "fz_aim",
       "total_steps": 3000000,
+      "status": "done"
+    },
+    {
+      "name": "2a/6  Aim \u2014 vertical INTRO, tiny elevation, target always in view",
+      "run": "fz_aim_vert_intro",
+      "total_steps": 800000,
       "status": "running"
     },
     {
-      "name": "Aim — vertical + elevation (keeps horizontal rehearsal)",
+      "name": "2b/6  Aim \u2014 full vertical, \u00b16 blocks elevation (resume from 2a)",
       "run": "fz_aim_vert",
-      "total_steps": 4000000,
+      "total_steps": 3000000,
       "status": "queued"
     },
     {
-      "name": "Combo school — the fighter learns to combo vs a walker",
+      "name": "3/6  Combo school \u2014 the fighter learns to combo vs a walker",
       "run": "fz_combo",
       "total_steps": 2000000,
       "status": "queued"
     },
     {
-      "name": "PvP — mortal fight vs a full-speed opponent (best-checkpointed)",
+      "name": "4/6  Mortal fight \u2014 vs a full-speed opponent (best-checkpointed)",
       "run": "fz_fight",
-      "total_steps": 150000,
-      "status": "queued"
+      "total_steps": 300000,
+      "status": "running"
+    },
+    {
+      "name": "5/6  Theobald bot \u2014 fine-tune vs the TheoBaldTheBird-style bot (FINAL)",
+      "run": "fz_theobald",
+      "total_steps": 400000,
+      "status": "running"
     },
     {
       "name": "Auto-ships models/aim.pt + models/fighter2.pt",
-      "fixed_minutes": 5,
+      "fixed_minutes": 3,
       "status": "queued"
     }
   ]

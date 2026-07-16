@@ -85,6 +85,28 @@ class PPOTrainer:
             skipped = _warm_start_trunk(self.policy, init_ckpt)
             print(f"warm-started trunk from {init_ckpt}"
                   f" (skipped: {', '.join(skipped) or 'nothing'})")
+            # Under lock_pitch the dpitch action is forced to 0, so the pitch
+            # output (actor_mean row 1 + its logstd) never sees a reward
+            # gradient and drifts to garbage over the stage. Warm-starting the
+            # vertical stage from it would inherit that garbage and break the
+            # aim the instant pitch unlocks (even eye-level targets go to 0%).
+            # Reset ONLY the pitch head: keep the trained yaw, start pitch at
+            # ~0 with fresh exploration so the vertical reward can teach it.
+            if cfg.get("reset_pitch_head") and isinstance(self.policy, AimPolicy):
+                with torch.no_grad():
+                    self.policy.actor_mean.weight[1].normal_(0.0, 0.01)
+                    self.policy.actor_mean.bias[1].zero_()
+                    self.policy.actor_logstd[0, 1] = -0.3
+                print("reset pitch head (dpitch mean+logstd) for the vertical stage")
+            # Symmetric: the pure-vertical stage HARD-locks yaw, so the yaw head
+            # rots there. The both-axes stage resets it and relearns yaw on the
+            # (now target-aware) encoder, keeping the good pitch head.
+            if cfg.get("reset_yaw_head") and isinstance(self.policy, AimPolicy):
+                with torch.no_grad():
+                    self.policy.actor_mean.weight[0].normal_(0.0, 0.01)
+                    self.policy.actor_mean.bias[0].zero_()
+                    self.policy.actor_logstd[0, 0] = -0.3
+                print("reset yaw head (dyaw mean+logstd) for the both-axes stage")
         self.optimizer = torch.optim.Adam(self.policy.parameters(),
                                           lr=cfg["lr"], eps=1e-5)
         self.writer = SummaryWriter(str(run_dir / "tb"))

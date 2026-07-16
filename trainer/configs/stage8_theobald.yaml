@@ -1,0 +1,45 @@
+# Stage 8: fine-tune the shipped fighter against a TheoBaldTheBird-style bot.
+# Same fighter2 head + frozen aim net as the duel stages, but the scripted
+# opponent is the native Theobald ladder (opp_difficulty 0 easiest .. 5
+# hardest): faster reactions, circle-strafing, invuln-window discipline,
+# sprint knockback and low-health retreat as the difficulty climbs.
+# Warm-started from the shipped fighter2.pt so this SHARPENS a proven fighter
+# rather than training from zero.
+# Run from trainer/: python train.py configs/stage8_theobald.yaml --run stage8_theobald
+stage: fighter2
+seed: 88
+total_steps: 1_000_000
+downsample: 3
+frame_stack: 4
+aim_checkpoint: ../models/aim.pt
+init_checkpoint: ../models/fighter2.pt
+
+curriculum:
+  horizontal_prob: 1.0
+  max_elev: 0.0
+  dist_min: 3.0
+  dist_max: 10.0
+  yaw_range: 90.0
+  episode_ticks: 1200   # timeout is only a draw; duels usually end far sooner
+  lock_ticks: 3         # unused by the fighter stages
+  opponent: theobald
+  opp_difficulty: 4     # disciplined: respects i-frames, strafes, sprint-KBs
+  allow_jump: 0
+  mortal: 1             # real hearts: kill ends the episode (+5), dying -5
+
+ppo:
+  lr: 1.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  rollout_len: 128
+  num_minibatches: 2
+  update_epochs: 2
+  clip_coef: 0.2
+  # Fine-tuning a converged fighter against a high-variance opponent: keep the
+  # entropy bonus WAY down or a warm-started policy entropy-drifts and
+  # dissolves (see stage7b_chain). Best-return checkpointing holds the peak.
+  ent_coef: 0.0007
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 1.0
+  torch_threads: 3

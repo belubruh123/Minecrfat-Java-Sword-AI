@@ -66,3 +66,17 @@ training needed to use the pilot.
 Use it only where it's allowed — on your own server or with consenting
 opponents. On public servers this is indistinguishable from botting and
 will get the account banned.
+
+### Train in-game against the TheoBaldTheBird bot
+
+Two related capabilities extend the above (see SETUP.md §C and PROTOCOL.md):
+
+- **`theobald` opponent** — the headless curriculum can train against a native,
+  6-difficulty (`opp_difficulty` 0–5) reimplementation of TheoBaldTheBird's
+  sword bot. `scripts/train_all.sh` now ends with a stage that hardens the
+  fighter against it, so the shipped `models/fighter2.pt` is Theobald-tested.
+- **`pilot_train.py`** — "pilot mode, but it learns": the same PPO fine-tunes
+  the fighter live from real play (aim frozen, combat only), against any
+  opponent in the world — including the *real* HeroBot bot when it's available
+  for this MC version. Reward is computed client-side in the mod. Start
+  `pilot_train.py` instead of `pilot.py`, then press **G**.

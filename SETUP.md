@@ -108,15 +108,17 @@ scripts/train_all.sh quick      # decent model (~4-5h)
 scripts/train_all.sh smoke      # tiny — just proves the pipeline runs
 ```
 
-That is it. It boots and reboots the server for you, trains all four stages
-(aim → vertical aim → combo school → mortal fight), and **ships
-`models/aim.pt` + `models/fighter2.pt`** when done (old ones backed up to
-`*_prev.pt`). The pilot auto-uses them — press **G** in game. Set your own
-budgets with env vars:
+That is it. It boots and reboots the server for you, trains all five stages
+(aim → vertical aim → combo school → mortal fight → **TheoBaldTheBird-style
+bot**), and **ships `models/aim.pt` + `models/fighter2.pt`** when done (old ones
+backed up to `*_prev.pt`). The final stage hardens the fighter against the
+native `theobald` opponent (a faithful 6-difficulty reimplementation of
+Theobald's sword bot). The pilot auto-uses the shipped weights — press **G** in
+game. Set your own budgets with env vars:
 
 ```bash
-AIM_STEPS=1000000 VERT_STEPS=1500000 COMBO_STEPS=1500000 FIGHT_STEPS=250000 \
-    scripts/train_all.sh
+AIM_STEPS=1000000 VERT_STEPS=1500000 COMBO_STEPS=1500000 \
+    FIGHT_STEPS=250000 THEO_STEPS=400000 scripts/train_all.sh
 ```
 
 Interrupted? Re-run the same command — each stage resumes where it left off.
@@ -163,11 +165,42 @@ To make the pilot use a model you trained, copy it into `models/`
 (e.g. `cp runs/stage7b_chain/final.pt models/fighter2.pt`) and restart
 `pilot.py`.
 
+### C. Train in-game — "pilot mode, but it learns"
+
+Fine-tune the fighter live, from real play, against whatever opponent is in the
+world — including the **real** TheoBaldTheBird HeroBot bot. Same PPO as the
+headless trainer, but n=1 and at real time, so it's for **fine-tuning** the
+shipped `models/fighter2.pt`, not training from scratch. Only the combat head
+learns; the aim net stays frozen.
+
+```bash
+cd trainer
+../.venv/bin/python pilot_train.py            # listens on :36566, resumes models/fighter2.pt
+```
+
+Then in a Minecraft client with the drlagent mod: load a world with an opponent,
+target it, and press **G**. The HUD shows the fight stats while the policy
+learns from every exchange. Press **G** again (or Ctrl+C in the terminal) to
+stop — the improved fighter is shipped to `models/fighter2.pt` (previous one
+backed up to `fighter2_prev.pt`). Useful flags: `--resume <ckpt>`, `--lr`,
+`--steps`, `--no-ship`.
+
+**Fighting the real Theobald bot.** The bot needs the **HeroBot** Fabric mod +
+Theobald's practice map, which target MC 1.21.x — a mod for one MC version can't
+load in another, and one game instance runs one version. So to fight the literal
+bot you need HeroBot + the map built for **this project's MC version (26.1.2)**;
+if that isn't available, the native `theobald` opponent (stage 5 of
+`train_all.sh`) already trains against a faithful reimplementation, and
+`pilot_train.py` still fine-tunes against any real player. Once versions line
+up: launch a client with **both** mods, load Theobald's map, spawn the bot at a
+difficulty, run `pilot_train.py`, and press **G** — the pilot targets the bot
+like any player, no extra config.
+
 ## Ports (all localhost-only)
 
 | Port | Who listens | Used for |
 |---|---|---|
 | 36565 | mod (training server) | lock-step training bridge |
-| 36566 | `pilot.py` | pilot inference |
+| 36566 | `pilot.py` / `pilot_train.py` | pilot inference / in-game fine-tuning |
 | 8080 | dashboard | episode replays |
 | 25565 | training server | normal Minecraft joins (e.g. to spectate) |

@@ -65,7 +65,12 @@ public final class Arena {
 	// still" action). Anywhere on the white blob counts as aimed (no
 	// centering pay while on target), and moving while aimed costs flat.
 	private static final float AIM_DEADZONE = 5.0f;
-	private static final float ON_TARGET_MOVE_PENALTY = 0.15f;
+	private static final float ON_TARGET_MOVE_PENALTY = 0.10f;
+	// Bonus for holding PERFECTLY STILL while aimed (dyaw==dpitch==0, i.e. the
+	// command sits inside the deadzone). Once the crosshair is on target the
+	// ideal is to freeze — this pays for it on top of avoiding the move penalty,
+	// so "aim then stop" strictly beats micro-adjusting on a settled target.
+	// removed: AIMED_STILL_BONUS (caused mouse freezing)
 	// Cap on paid on-target ticks per episode: unbounded, the per-tick reward
 	// outpays the lock bonus and the policy farms it by never completing a lock.
 	private static final int MAX_PAID_ON_TARGET = 10;
@@ -74,6 +79,31 @@ public final class Arena {
 	private static final float LOCK_BONUS = 3.0f;
 	private static final float LOCK_SPEED_BONUS = 2.0f;
 	private static final float TIMEOUT_PENALTY = 1.0f;
+
+	// Vertical-aim recovery rewards: three signals that together give the policy
+	// a clear gradient to find a lost target by correcting extreme pitch.
+	//
+	// (1) EXTREME_PITCH_COST: per-tick penalty for looking beyond ±35° from level.
+	//     Ramps linearly to full cost at ±90°. At ±45° the cost ≈ 0.05/tick, mild
+	//     enough that aiming at a legitimately elevated target still pays, but
+	//     sustaining 60°+ without a target on-screen is ruinous.
+	private static final float EXTREME_PITCH_COST = 0.75f;
+	private static final float PITCH_COMFORT_DEG = 35.0f;
+	// (2) LOST_TARGET_PENALTY: flat bleed when the target is fully off-screen.
+	//     Creates urgency beyond the regular time penalty — the agent must DO
+	//     SOMETHING to get the target back, not just hold still.
+	private static final float LOST_TARGET_PENALTY = 0.10f;
+	// (3) PITCH_RETURN_SHAPING: potential-based shaping (phi = -|pitch|/90) that
+	//     rewards pitch corrections TOWARD level when the mask is blank. Potential-
+	//     based so it doesn't shift the optimal policy; just accelerates learning
+	//     the "return to level when lost" behavior. At 15°/tick max turn speed
+	//     one tick of correction earns ~0.05, which with the extreme-pitch relief
+	//     beats the jerk cost and time penalty — so correcting IS net positive.
+	private static final float PITCH_RETURN_SHAPING = 0.90f;
+	// (4) LEVEL_PITCH_BONUS: user-requested flat reward for keeping pitch near 0.
+	//     Gives a tiny fraction of encouragement for just returning to center.
+	//     Max +0.02 at 0°, dropping to 0 at ±30°.
+	private static final float LEVEL_PITCH_BONUS = 0.02f;
 
 	// Swing-stage rewards: a landed hit pays the attack-cooldown charge at the
 	// moment of the swing (full charge = +1), any swing that fails to damage
@@ -84,7 +114,10 @@ public final class Arena {
 	// judge range and charge before pressing. The fighter2 head owns the
 	// attack button, so missed swings are its own choice. (Was 0.3 while the
 	// frozen swing net clicked; 0.6 briefly.)
-	private static final float WHIFF_PENALTY = 1.0f;
+	private static final float WHIFF_PENALTY = 0.1f;
+	// Spamming swings before the cooldown refills ruins damage/knockback and
+	// wastes the opponent's invulnerability frames.
+	private static final float SPAM_PENALTY = 0.50f;
 	// The user's rule: cooldown done + in range = swing NOW. Every tick where
 	// a swing would land (full charge, crosshair on the target within reach,
 	// target vulnerable) and the policy does not press costs this much —
@@ -200,7 +233,7 @@ public final class Arena {
 	private static final float LOW_AIM_MARGIN = 2.0f;  // degrees of slack below the neck
 	private static final double LOW_AIM_FULL_DEG = 6.0; // deg below neck for full penalty
 	// Fraction up the hitbox that counts as the neck/upper-chest aim point.
-	private static final double NECK_FRACTION = 0.85;
+	private static final double NECK_FRACTION = 0.65;
 	// For the AIM stage, "on target" (reward + lock) is only the UPPER body from
 	// here up (neck-ish to head). The soft aim-down penalty alone kept losing to
 	// the deep center-aim habit + the hold-still penalty; making the lower body
@@ -208,7 +241,7 @@ public final class Arena {
 	// so it must ride the head/neck. Hits still use the full box, so this only
 	// moves where the camera rests, not where swings land. At 2 blocks the zone
 	// bottom is ~+8 deg (upper chest); at range it is near level.
-	private static final double UPPER_TARGET_FRAC = 0.75;
+	private static final double UPPER_TARGET_FRAC = 0.50;
 
 	public static final int INFO_ON_TARGET = 1;
 	public static final int INFO_HIT_LANDED = 2;
@@ -261,6 +294,8 @@ public final class Arena {
 	/** Clamped aim command applied this tick (for the smooth-aim cost). */
 	private float lastDyaw;
 	private float lastDpitch;
+	/** Agent's pitch at the start of the tick (for pitch-return shaping). */
+	private float prevPitch;
 	/** Normalized tick-to-tick change of the aim command, in [0, 1]. */
 	private float aimJerk;
 	/** A strafe key was held this tick (for the orbit cost). */
@@ -356,6 +391,7 @@ public final class Arena {
 		// spurious ~-1 pursuit penalty on its first tick
 		lastDyaw = 0;
 		lastDpitch = 0;
+		prevPitch = agent.getXRot();
 		aimJerk = 0;
 
 		boolean horizontal = rng.nextDouble() < cfg.horizontalProb || cfg.maxElev <= 0;
@@ -369,6 +405,16 @@ public final class Arena {
 		if (!horizontal) {
 			oy += (rng.nextDouble() * 2 - 1) * cfg.maxElev;
 			oy = Math.max(oy, floorY - 0.5);
+		} else if (cfg.vJitter > 0) {
+			// Horizontal aim stage: jitter the target's height so the white blob is
+			// not always on the same screen row. Pitch is locked, so on-target is
+			// graded on YAW alone (isCrosshairAlignedYaw) — a level crosshair still
+			// locks. This stops the policy from memorizing "white in the center band
+			// = target" and spinning until it appears; it must actually center the
+			// target horizontally no matter how high it sits. Floor-clamped so the
+			// blob stays visible (a below-floor target gets occluded by the stone).
+			oy += (rng.nextDouble() * 2 - 1) * cfg.vJitter;
+			oy = Math.max(oy, floorY - 0.4);
 		}
 		float opponentYaw = (float) Mth.wrapDegrees(Math.toDegrees(angle) + 180);
 		place(opponent, ox, oy, oz, opponentYaw, 0);
@@ -385,7 +431,8 @@ public final class Arena {
 
 		oppPerfectEpisode = !"human".equals(cfg.opponent)
 				|| rng.nextDouble() < cfg.oppFightProb;
-		oppReactTicks = sampleReaction();
+		oppReactTicks = "theobald".equals(cfg.opponent)
+				? theobaldReaction() : sampleReaction();
 		oppWasDisrupted = false;
 	}
 
@@ -440,6 +487,9 @@ public final class Arena {
 		// horizontal-only stage: hold pitch level so the eye-level target can
 		// never leave the vertical view (the vertical stage unlocks this).
 		if (cfg.lockPitch) newDpitch = 0;
+		// pure-vertical stage: hold yaw fixed so the agent can ONLY move up/down
+		// (target spawns dead ahead) — it physically cannot spin off-target.
+		if (cfg.lockYaw) newDyaw = 0;
 		aimJerk = (Math.abs(newDyaw - lastDyaw) + Math.abs(newDpitch - lastDpitch))
 				/ (2 * MAX_TURN_PER_TICK);
 		lastDyaw = newDyaw;
@@ -520,6 +570,9 @@ public final class Arena {
 			// combo school: human movement + hitstun/airborne disruption
 			// (so knockback actually carries it), but it never swings back
 			tickHumanOpponent(false);
+		} else if ("theobald".equals(cfg.opponent)) {
+			// TheoBaldTheBird-style practice bot on a 0..5 difficulty ladder
+			tickTheobaldOpponent(cfg.opponentDifficulty);
 		}
 		// No manual agent/opponent tick: the server level ticks entities in
 		// force-loaded chunks itself — adding one here double-ticks physics
@@ -529,6 +582,13 @@ public final class Arena {
 	/** Opponent turn rate while humanized (degrees/tick); a mouse flick is
 	 * fast, so this mostly matters while recovering from hitstun. */
 	private static final float OPP_TURN_RATE = 20.0f;
+
+	// TheoBaldTheBird-style difficulty ladder (index 0..5). Reaction windows in
+	// ticks (20/s): ~0.1 s at the top, ~0.7 s at the bottom. Higher difficulties
+	// additionally add circle-strafing, invuln-window discipline, sprint
+	// knockback and low-health retreat (see tickTheobaldOpponent).
+	private static final int[] THEO_REACT_MIN = {8, 6, 5, 4, 3, 2};
+	private static final int[] THEO_REACT_MAX = {14, 11, 9, 7, 5, 4};
 
 	/**
 	 * Humanized opponent: same movement instincts as the scripted bot, but
@@ -601,6 +661,114 @@ public final class Arena {
 		}
 		oppSwung = true;
 		oppReactTicks = sampleReaction();
+	}
+
+	/** Reaction sample for the Theobald bot at the current difficulty. */
+	private int theobaldReaction() {
+		int d = Mth.clamp(cfg.opponentDifficulty, 0, 5);
+		int lo = THEO_REACT_MIN[d], hi = THEO_REACT_MAX[d];
+		return lo + rng.nextInt(Math.max(1, hi - lo + 1));
+	}
+
+	/**
+	 * TheoBaldTheBird-style practice bot: a 0..5 difficulty ladder built from
+	 * the same movement/attack instincts as {@link #tickHumanOpponent}, adding
+	 * circle-strafing, invuln-window discipline, sprint knockback and
+	 * low-health retreat as the difficulty rises. Faithful in behavior to
+	 * Theobald's sword bot; it is NOT the literal HeroBot mod (which targets a
+	 * different MC version and so cannot load alongside this one) — that bot is
+	 * reachable only through the live pilot-train path against a real client.
+	 *
+	 * <p>Like the humanized opponent it is fully disrupted while in hitstun or
+	 * knocked airborne (so the agent's juggles/combos still pay), and it never
+	 * dodges backward except to reset at low health — it faces the agent and
+	 * pressures, which is what Theobald's sword bot does.
+	 */
+	private void tickTheobaldOpponent(int difficulty) {
+		int d = Mth.clamp(difficulty, 0, 5);
+		boolean strafe = d >= 2;
+		float strafeMag = d >= 3 ? 0.9f : (d == 2 ? 0.5f : 0.0f);
+		boolean respectInvuln = d >= 4;
+		boolean retreatLow = d >= 5;
+
+		boolean disrupted = opponent.hurtTime > 0 || !opponent.onGround();
+		if (disrupted) {
+			oppWasDisrupted = true;
+			opponent.zza = 0;
+			opponent.xxa = 0;
+			opponent.setSprinting(false);
+			return;
+		}
+		if (oppWasDisrupted) {
+			oppWasDisrupted = false;
+			oppReactTicks = theobaldReaction();
+		}
+
+		// face the agent (fast but not instant — mirrors a mouse flick)
+		double dx = agent.getX() - opponent.getX();
+		double dz = agent.getZ() - opponent.getZ();
+		float yawToAgent = (float) Math.toDegrees(Math.atan2(-dx, dz));
+		float dyaw = Mth.wrapDegrees(yawToAgent - opponent.getYRot());
+		float yaw = opponent.getYRot() + Mth.clamp(dyaw, -OPP_TURN_RATE, OPP_TURN_RATE);
+		opponent.setYRot(yaw);
+		opponent.setYHeadRot(yaw);
+
+		double dist = opponent.distanceTo(agent);
+		boolean low = retreatLow && opponent.getHealth() < 0.3f * opponent.getMaxHealth();
+
+		// circle-strafe at the higher difficulties, flipping on the shared timer
+		if (strafe && !low) {
+			if (--strafeFlipTicks <= 0) {
+				strafeDir = -strafeDir;
+				strafeFlipTicks = 20 + rng.nextInt(40);
+			}
+			opponent.xxa = strafeMag * strafeDir;
+		} else {
+			opponent.xxa = 0;
+		}
+
+		// approach and hold sword range; back off to reset when low on health
+		if (low) {
+			opponent.zza = -1.0f;
+			opponent.setSprinting(opponent.onGround());
+		} else {
+			opponent.zza = dist > 3.0 ? 1.0f : (dist < 2.0 ? -0.5f : 0.0f);
+			opponent.setSprinting(dist > 4.0 && opponent.onGround());
+		}
+
+		if (low) {
+			return; // defensive reset: don't press swings while retreating
+		}
+		if (opponent.getAttackStrengthScale(0.5f) < 0.9f) {
+			return;
+		}
+		Vec3 eye = opponent.getEyePosition();
+		Vec3 dir = agent.getEyePosition().subtract(eye).normalize();
+		Vec3 end = eye.add(dir.scale(opponent.entityInteractionRange()));
+		Optional<Vec3> hit = agent.getBoundingBox().clip(eye, end);
+		if (hit.isEmpty() || blockedByBlocks(eye, hit.get())) {
+			return;
+		}
+		// high difficulty is disciplined about the agent's i-frames (like the
+		// perfect "fight" bot); low difficulty wastes early swings into them.
+		if (respectInvuln && agent.invulnerableTime > 10) {
+			return;
+		}
+		// the reaction delay counts down only while the opening actually exists
+		if (oppReactTicks > 0) {
+			oppReactTicks--;
+			return;
+		}
+		// attack BEFORE swing: swing resets the ticker and floors the damage.
+		int hurtBefore = agent.hurtTime;
+		boolean sprintHit = opponent.isSprinting();
+		opponent.attack(agent);
+		opponent.swing(InteractionHand.MAIN_HAND);
+		if (agent.hurtTime > hurtBefore) {
+			applyPlayerKnockback(opponent, agent, sprintHit);
+		}
+		oppSwung = true;
+		oppReactTicks = theobaldReaction();
 	}
 
 	/** Fighting opponent: swings at the agent with perfect discipline —
@@ -690,8 +858,10 @@ public final class Arena {
 		}
 
 		// aim stage: on-target = UPPER body only, so the camera cannot rest on
-		// the feet (hits elsewhere still use the full box).
-		boolean onTarget = isCrosshairOnUpperBody();
+		// the feet (hits elsewhere still use the full box). When pitch is LOCKED
+		// (horizontal stage) the target's height is jittered, so grade YAW alone —
+		// a level crosshair can never satisfy the 2D upper-body test off eye level.
+		boolean onTarget = cfg.lockPitch ? isCrosshairAlignedYaw() : isCrosshairOnUpperBody();
 		double angErr = currentAngleError();
 
 		float reward = 0;
@@ -701,22 +871,26 @@ public final class Arena {
 				paidOnTargetTicks++;
 			}
 			consecOnTarget++;
-			double low = lowAimError();
 			// Don't rest on the feet: while the crosshair is on the body, aiming
 			// below the neck bleeds (the aim net is the policy that owns the
 			// camera for EVERY downstream stage; aiming down also shortens reach
 			// to 3*cos(pitch)). At the neck the cost is ~0 so a settled aim pays
 			// full. Only DOWNWARD deviation is charged; head aim is free.
-			reward -= (float) (LOW_AIM_COST * Math.min(1.0, low / LOW_AIM_FULL_DEG));
+			// Skipped while pitch is locked: pitch is frozen level and the target
+			// height is jittered, so this would charge an aim the policy cannot fix.
+			if (!cfg.lockPitch) {
+				double low = lowAimError();
+				reward -= (float) (LOW_AIM_COST * Math.min(1.0, low / LOW_AIM_FULL_DEG));
+			}
 			// Hold still whenever aimed: on-target is now the UPPER BODY only, so
 			// "aimed" already excludes the feet — there is no feet-trap to dodge,
 			// and the always-on rule matches the user's doctrine (aimed at the
 			// enemy => don't move => moving is punished). A position gate here was
 			// worse: it made moving FREE below the neck, so on a moving target the
 			// aim drifted DOWN into that haven (near-range pitch regressed +4->+10
-			// deg over 40k). The low-aim penalty above still pulls up to the neck.
+			// deg over 40k). The movement penalty applied *during* target lock if crosshair slips
 			if (lastDyaw != 0 || lastDpitch != 0) {
-				reward -= ON_TARGET_MOVE_PENALTY;
+				reward -= 0.1f;
 			}
 		} else {
 			// centering shaping only while OFF target — on the blob every
@@ -729,6 +903,31 @@ public final class Arena {
 		reward -= AIM_JERK_COST * aimJerk;
 		reward -= TIME_PENALTY;
 		prevAngErr = angErr;
+
+		// --- Vertical-aim recovery signals (stage 2+) ---
+		// Skipped while pitch is locked: the agent can't control pitch, so
+		// penalizing it or rewarding corrections is meaningless.
+		if (!cfg.lockPitch) {
+			// (1) Extreme pitch penalty
+			float absPitch = Math.abs(agent.getXRot());
+			if (absPitch > PITCH_COMFORT_DEG) {
+				float excess = (absPitch - PITCH_COMFORT_DEG)
+						/ (90.0f - PITCH_COMFORT_DEG);
+				reward -= EXTREME_PITCH_COST * excess;
+			}
+			// (2+3) Lost target: off-screen bleed + pitch-return shaping
+			if (!isTargetVisible()) {
+				reward -= LOST_TARGET_PENALTY;
+				float prevAbsPitch = Math.abs(prevPitch);
+				float currAbsPitch = Math.abs(agent.getXRot());
+				reward += PITCH_RETURN_SHAPING * (prevAbsPitch - currAbsPitch) / 90.0f;
+			}
+			// (4) Level pitch bonus
+			if (absPitch < 30.0f) {
+				reward += LEVEL_PITCH_BONUS * (1.0f - absPitch / 30.0f);
+			}
+		}
+		prevPitch = agent.getXRot();
 
 		int info = 0;
 		if (onTarget) info |= INFO_ON_TARGET;
@@ -851,6 +1050,10 @@ public final class Arena {
 			} else {
 				reward -= WHIFF_PENALTY;
 			}
+			
+			if (lastAttackCharge < 0.9f) {
+				reward -= SPAM_PENALTY;
+			}
 		}
 		boolean freshHitTaken = agent.hurtTime > agentHurtTimeBefore;
 		agentHurtTimeBefore = agent.hurtTime;
@@ -889,9 +1092,8 @@ public final class Arena {
 		boolean chainLive = comboChain >= 1 && !takenSinceLastHit
 				&& episodeTick - lastHitTick <= CHAIN_WINDOW;
 		double chasePhi = -Math.max(0.0, agent.distanceTo(opponent) - 2.8);
-		if (chainLive || cfg.mortal) {
-			reward += (float) (PURSUIT_SHAPING * (chasePhi - chasePhiBefore));
-		}
+		// unconditional pursuit: always want to be at edge of reach (2.8 blocks)
+		reward += (float) (PURSUIT_SHAPING * (chasePhi - chasePhiBefore));
 		chasePhiBefore = chasePhi;
 		if (comboChain >= 1 && !takenSinceLastHit
 				&& episodeTick - lastHitTick == CHAIN_WINDOW + 1) {
@@ -965,6 +1167,24 @@ public final class Arena {
 		return ObsProjector.rayHitsBox(view.x, view.y, view.z,
 				box.minX - eye.x, upMinY - eye.y, box.minZ - eye.z,
 				box.maxX - eye.x, box.maxY - eye.y, box.maxZ - eye.z);
+	}
+
+	/** Crosshair aligned in YAW with the target, ignoring pitch/height. This is
+	 * the horizontal aim stage's "on target": pitch is locked level and the
+	 * target's height is jittered, so the vertical view plane (the crosshair's
+	 * yaw) passing through the target's horizontal extent is the whole task —
+	 * a level crosshair can never satisfy the full 2D upper-body test off eye
+	 * level. On target when the yaw error is within the target's angular
+	 * half-width (player box is 0.6 wide), matching the horizontal tightness of
+	 * the full box test. Hit detection is unchanged. */
+	private boolean isCrosshairAlignedYaw() {
+		double dx = opponent.getX() - agent.getX();
+		double dz = opponent.getZ() - agent.getZ();
+		double horiz = Math.sqrt(dx * dx + dz * dz);
+		double yawToTarget = Math.toDegrees(Math.atan2(-dx, dz));
+		double yawErr = Math.abs(Mth.wrapDegrees(yawToTarget - agent.getYRot()));
+		double halfWidth = Math.toDegrees(Math.atan2(0.3, Math.max(0.5, horiz)));
+		return yawErr <= halfWidth;
 	}
 
 	private double currentAngleError() {

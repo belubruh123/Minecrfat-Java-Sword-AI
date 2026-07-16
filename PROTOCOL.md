@@ -51,6 +51,16 @@ disrupted while in hitstun or knocked airborne — so combos and spacing have
 real defensive value). With `opponent: "human"`, `opp_fight_prob` mixes in
 perfect-bot episodes at that probability (anti-overfitting rehearsal).
 
+`theobald` is a TheoBaldTheBird-style practice bot with an `opp_difficulty`
+(0 easiest .. 5 hardest) curriculum key. It composes the same movement/attack
+instincts as `human` and adds, as difficulty rises: faster reactions,
+circle-strafing, invuln-window discipline (high levels stop wasting swings into
+i-frames, like `fight`), sprint knockback, and low-health retreat. It is
+faithful in behavior to Theobald's sword bot — it is NOT the literal HeroBot
+mod, which targets a different MC version and so cannot load in the same
+instance. To train against the *real* HeroBot bot, use the pilot bridge below
+against a live client that has both mods.
+
 ## Action batch (type 1)
 
 Repeated `arenas` times (arena index order):
@@ -92,3 +102,30 @@ Mask size for 426×240 = 12780 bytes.
 - `health`: 0..1 (fraction of max, as shown by hearts)
 - `last_reach`: eye-to-target distance measured at the last landed hit, blocks
   (0 until the first hit of the episode)
+
+## Pilot bridge (port 36566)
+
+A second bridge drives one live player instead of the headless arenas. Roles are
+**reversed**: the Python side (`trainer/pilot.py` for inference, or
+`trainer/pilot_train.py` for online training) **listens**, and the game
+**connects out**. Same framing as above. There is a single "arena" (the local
+player) and strict alternation: one obs out, one action back.
+
+Handshake: the game sends JSON `pilot_hello` (`{"msg":"pilot_hello",
+"protocol":2, "width":426, "height":240}`); the server replies JSON containing
+`"ready"`. If that reply also carries `"train":true`, the game enters **train
+mode**.
+
+- **Inference (protocol 1/2, `pilot.py`):** each obs frame (type 2) is `mask +
+  scalars f32×9`. The action frame (type 1) is 13 bytes
+  `dyaw f32, dpitch f32, attack u8, move u8, strafe u8, jump u8, sprint u8`.
+- **Train mode (protocol 2, `pilot_train.py`):** the obs frame additionally
+  appends `reward f32, done u8, info u8` — the same reward/done/info the
+  training bridge sends, but computed **client-side** in `PilotController`
+  (mirroring the dominant terms of `Arena.stepCombo`; minor per-tick
+  strafe/jump/hesitation costs are omitted). `info` uses the same bit flags as
+  the training bridge (hit landed / hit taken / whiff / crit / sprint-hit /
+  chain-hit). This lets `pilot_train.py` run the same PPO online to fine-tune
+  the fighter from live play (see SETUP.md). Note: hit rewards are attributed on
+  the tick the server confirms the hit (a target `hurtTime` jump), which can lag
+  the swing by a few ticks — harmless to PPO (GAE absorbs the delay).
